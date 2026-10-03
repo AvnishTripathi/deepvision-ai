@@ -1,4 +1,4 @@
-# DeepVision AI — Step 3 Initial Backend Dependencies
+# DeepVision AI — Backend Dependencies
 # Python 3.12 Compatible & Stable
 
 fastapi>=0.115.0
@@ -11,3 +11,6 @@ alembic>=1.13.3
 psycopg[binary]>=3.2.0
 redis>=5.0.8
 
+# Testing utilities
+httpx>=0.28.0
+pytest>=8.3.0
