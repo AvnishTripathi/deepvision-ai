@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from app.core.config import settings
 
 router = APIRouter(tags=["Health"])
 
@@ -7,6 +8,6 @@ router = APIRouter(tags=["Health"])
 def get_health():
     return {
         "status": "healthy",
-        "service": "deepvision-api",
-        "version": "0.1.0"
+        "service": settings.SERVICE_NAME,
+        "version": settings.APP_VERSION
     }
