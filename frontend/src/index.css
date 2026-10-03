@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-dark-bg text-slate-200 antialiased min-h-screen;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-slate-800/50 backdrop-blur-md border border-slate-700/50;
+  }
+  
+  .glass-card {
+    @apply bg-dark-card/80 backdrop-blur-lg border border-slate-700/50 rounded-xl shadow-xl;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+/* Cyber Scanning & HUD animations */
+@keyframes cyber-scan {
+  0% { transform: translateY(0%); opacity: 0; }
+  15% { opacity: 1; }
+  85% { opacity: 1; }
+  100% { transform: translateY(100%); opacity: 0; }
+}
+
+.animate-scan-line {
+  animation: cyber-scan 2.0s ease-in-out infinite alternate;
+}
+
+@keyframes face-box-scan {
+  0% { top: 0%; opacity: 0.4; }
+  50% { opacity: 1; }
+  100% { top: 100%; opacity: 0.4; }
+}
+
+.animate-face-sweep {
+  animation: face-box-scan 1.6s ease-in-out infinite alternate;
+}
+
+
+@keyframes radar-pulse {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.05); opacity: 0.3; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.animate-radar {
+  animation: radar-pulse 3s ease-in-out infinite;
+}
+
+.bg-cyber-grid {
+  background-size: 36px 36px;
+  background-image: 
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+}
+
