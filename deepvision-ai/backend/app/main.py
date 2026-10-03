@@ -3,10 +3,20 @@ DeepVision AI — Application Entry Point
 Clean, scalable FastAPI service for DeepVision AI.
 """
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.core.database import init_db
 from app.api.v1 import api_router
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize database connection & metadata
+    init_db()
+    yield
+
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -14,7 +24,8 @@ app = FastAPI(
     description="Advanced AI-Powered Face Detection, Video Analysis & Real-Time Vision Platform",
     docs_url="/docs",
     redoc_url="/redoc",
-    openapi_url="/openapi.json"
+    openapi_url="/openapi.json",
+    lifespan=lifespan,
 )
 
 # CORS middleware configured via typed settings
