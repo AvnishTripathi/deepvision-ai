@@ -4,63 +4,74 @@
 
 ---
 
-## 📌 Overview
+## 📌 Project Description
 
-**DeepVision AI** is an enterprise-grade computer vision platform built for high-performance facial detection, multi-face tracking, video stream analysis, and real-time vision analytics.
+**DeepVision AI** is an enterprise-ready, high-performance computer vision system designed for intelligent facial detection, multi-face tracking, media stream analytics, and authorized vision intelligence. The platform is structured around clean modular architecture, async processing pipelines, and cloud-ready infrastructure.
 
 ---
 
-## 🏗️ Architecture & Project Structure
+## 🎯 Vision
+
+DeepVision AI is being developed as a **modular AI computer-vision platform**. 
+
+Rather than a monolithic computer-vision script, the architecture separates core concerns:
+- **Presentation Layer**: Responsive Next.js frontend with real-time streaming capabilities.
+- **API & Orchestration**: Asynchronous FastAPI service handling validated requests, authentication, and dispatching.
+- **Database & Persistence**: Enterprise PostgreSQL persistence layer powered by SQLAlchemy 2.0.
+- **Cache & Message Broker**: Redis connection foundation for job scheduling, stream chunking, and caching.
+- **AI Processing Engines**: Decoupled detection, tracking, analysis, and inference engines that can be upgraded or scaled independently.
+
+---
+
+## 🚦 Current Status
+
+### **Step 1 — Foundation**
+* **Status**: `In Progress`
+
+The core development environment, base project hierarchy, database/cache connection layers, containerization, and foundational services are established and verified:
 
 ```text
-deepvision-ai/
-│
-├── backend/
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py              # Application entry point & FastAPI setup
-│   │   │
-│   │   ├── api/                 # API controllers and versioned routes
-│   │   │   └── v1/
-│   │   │
-│   │   ├── core/                # System configuration, logging, exceptions
-│   │   │   ├── config.py
-│   │   │   ├── logging.py
-│   │   │   └── exceptions.py
-│   │   │
-│   │   ├── models/              # Database models (SQLAlchemy)
-│   │   ├── schemas/             # Request & response validation (Pydantic)
-│   │   ├── services/            # Business logic layer
-│   │   ├── repositories/        # Database data access layer
-│   │   ├── workers/             # Async background tasks & queues
-│   │   │
-│   │   └── ai/                  # AI & Computer Vision engines
-│   │       ├── detection/       # Face detection modules
-│   │       ├── tracking/        # Multi-object & facial tracking
-│   │       ├── analysis/        # Face quality & attribute analytics
-│   │       ├── recognition/     # Identity verification & embeddings
-│   │       └── inference/       # Model runners & runtime optimization
-│   │
-│   ├── tests/                   # Backend unit and integration tests
-│   └── requirements.txt         # Python dependencies
-│
-├── frontend/                    # Web client (React + TypeScript)
-├── models/                      # Model weights, ONNX exports, and configs
-├── storage/                     # Uploads, processed frames, and temporary media
-├── scripts/                     # Automation, database migration & utility scripts
-├── docs/                        # Architecture, API specs & technical guides
-├── tests/                       # End-to-end and platform test suites
-├── docker/                      # Dockerfiles and container configurations
-│
-├── .env.example                 # Environment variable templates
-├── .gitignore                   # Git exclusion rules
-├── docker-compose.yml           # Multi-container orchestration
-└── README.md                    # Project documentation
+DeepVision AI
+      │
+      ├── 🐍 Backend Working (FastAPI + Uvicorn)
+      ├── ⚛️ Frontend Working (Next.js + TypeScript)
+      ├── 🐘 PostgreSQL Connection Ready (SQLAlchemy + psycopg 3)
+      ├── 🔴 Redis Connection Ready (Connection Pooling & Diagnostics)
+      ├── 🐳 Docker Configuration Ready (Compose Specification)
+      ├── 🔐 Environment Configuration Ready (Typed Pydantic Settings)
+      └── 📦 Git Repository Structure Ready (.gitignore & Strict Clean History)
 ```
 
 ---
 
-## 🚀 Getting Started
+## 🛠️ Technology Stack
+
+| Layer | Technologies |
+| :--- | :--- |
+| **Frontend** | **Next.js** + **TypeScript** |
+| **Backend** | **FastAPI** + **Python 3.12** |
+| **Database** | **PostgreSQL** (with SQLAlchemy 2.0 ORM) |
+| **Cache / Queue** | **Redis** |
+| **Infrastructure** | **Docker** & **Docker Compose** |
+
+---
+
+## 🔮 Future AI Capabilities
+
+> [!NOTE]  
+> **Important**: The capabilities listed below represent **future development phases** and are **NOT implemented yet**. Phase 1 strictly focuses on environment and structural foundation.
+
+* 📸 **Deep Face Detection**: High-accuracy face localization across varying poses, lighting conditions, and partial occlusions.
+* 🖼️ **Image Analysis**: Deep forensic evaluation, facial bounding-box scoring, and quality assessment.
+* 🎬 **Video Analysis**: Multi-frame video ingestion, temporal consistency tracking, and anomaly detection.
+* 🎯 **Multi-Face Tracking**: Real-time tracking and unique trajectory persistence across frame sequences.
+* 📹 **Webcam Detection**: Low-latency browser and hardware live webcam stream processing.
+* ⚡ **AI Inference Optimization**: Hardware-optimized model inference runtimes (CPU threading, ONNX Runtime, TensorRT).
+* 🔐 **Optional Authorized Face Verification**: Secure facial embedding matching and authorized identity verification adhering to privacy and consent best practices.
+
+---
+
+## 🚀 Quickstart (Local Development)
 
 ### 1. Environment Setup
 
@@ -69,34 +80,30 @@ Copy `.env.example` to `.env`:
 cp .env.example .env
 ```
 
-### 2. Backend Quickstart
+### 2. Run the Backend
 
 ```bash
 cd backend
-python -m venv venv
-# Windows:
-.\venv\Scripts\activate
-# Linux/macOS:
-source venv/bin/activate
+# Activate virtual environment
+.\venv\Scripts\activate   # Windows
+# source venv/bin/activate # Linux/macOS
 
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
+* **API Documentation**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+* **Health Endpoint**: [http://127.0.0.1:8000/api/v1/health](http://127.0.0.1:8000/api/v1/health)
 
-* API Documentation: `http://localhost:8000/docs`
-* Health Check: `http://localhost:8000/health`
+### 3. Run the Frontend
 
-### 3. Containerized Deployment (Docker)
+```bash
+cd frontend
+npm install
+npm run dev
+```
+* **Frontend Application**: [http://localhost:3000](http://localhost:3000)
+
+### 4. Run via Docker Compose
 
 ```bash
 docker compose up --build
 ```
-
----
-
-## 🔒 Security & Best Practices
-
-- Strict schema validation with Pydantic v2
-- Configurable CORS policy
-- Graceful database and cache fallbacks for offline development
-- Environment variable separation for zero secrets leakage
