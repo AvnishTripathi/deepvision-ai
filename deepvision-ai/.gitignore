@@ -1,55 +1,59 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+# ==============================================================================
+# DeepVision AI — Professional Git Ignore
+# ==============================================================================
 
-# C extensions
-*.so
+# ------------------------------------------------------------------------------
+# Environment Variables & Secrets
+# ------------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+*.env
 
-# Distribution / packaging
-.Python
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
-*.egg-info/
-.installed.cfg
-*.egg
-
-# Virtual Environments
-venv/
+# ------------------------------------------------------------------------------
+# Python Virtual Environments
+# ------------------------------------------------------------------------------
 .venv/
+venv/
 env/
 ENV/
 env.bak/
 venv.bak/
 
-# Environment variables
-.env
-.env.local
+# ------------------------------------------------------------------------------
+# Python Bytecode & Cache Files
+# ------------------------------------------------------------------------------
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*$py.class
+*.so
 
-# Databases
-*.sqlite3
-*.db
-deepvision.db
+# ------------------------------------------------------------------------------
+# Testing, Linting & Type Checking
+# ------------------------------------------------------------------------------
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+.coverage
+.coverage.*
+nosetests.xml
+coverage.xml
 
-# Storage & Uploads (keep directory via .gitkeep)
-storage/*
-!storage/.gitkeep
+# ------------------------------------------------------------------------------
+# Distribution & Build Outputs
+# ------------------------------------------------------------------------------
+dist/
+build/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Model weights & Checkpoints (keep directory via .gitkeep)
-models/*
-!models/.gitkeep
-
-# Node.js / Frontend builds
+# ------------------------------------------------------------------------------
+# Frontend (Next.js & Node.js)
+# ------------------------------------------------------------------------------
 node_modules/
 .next/
 out/
@@ -58,31 +62,40 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-.pytest_cache/
+# ------------------------------------------------------------------------------
+# Model Weights & Checkpoints (Heavy Binaries)
+# ------------------------------------------------------------------------------
+models/*.onnx
+models/*.pt
+models/*.pth
+models/*.bin
+models/*.h5
+models/*.safetensors
+models/*.engine
+!models/.gitkeep
 
-# IDE / Editor artifacts
-.vscode/
-.idea/
-*.sublime-project
-*.sublime-workspace
+# ------------------------------------------------------------------------------
+# Media Storage, Uploads & Processed Frames
+# ------------------------------------------------------------------------------
+storage/*
+!storage/.gitkeep
 
-# OS artifacts
+# ------------------------------------------------------------------------------
+# Local Databases & Logs
+# ------------------------------------------------------------------------------
+*.sqlite3
+*.db
+deepvision.db
+*.log
+logs/
+
+# ------------------------------------------------------------------------------
+# Editor & OS Artifacts
+# ------------------------------------------------------------------------------
 .DS_Store
 Thumbs.db
 Desktop.ini
-
-# Logs
-*.log
-logs/
+.vscode/
+.idea/
+*.swp
+*.swo
