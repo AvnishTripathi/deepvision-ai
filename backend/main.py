@@ -1,12 +1,18 @@
 import time
+import sys
+import os
+from contextlib import asynccontextmanager
+
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+if CURRENT_DIR not in sys.path:
+    sys.path.insert(0, CURRENT_DIR)
+
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from contextlib import asynccontextmanager
 from prometheus_client import make_asgi_app
 import structlog
-import os
 
 from database import create_all_tables
 from routers import auth_router, detect_router, history_router
@@ -16,12 +22,12 @@ logger = structlog.get_logger()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
-    logger.info("Starting up DeepFaceGuard backend")
+    logger.info("Starting up DeepVision AI backend")
     create_all_tables()
     os.makedirs("./static", exist_ok=True)
     yield
     # Shutdown
-    logger.info("Shutting down DeepFaceGuard backend")
+    logger.info("Shutting down DeepVision AI backend")
 
 app = FastAPI(title="DeepVision AI API", version="1.0.0-step1", lifespan=lifespan)
 
