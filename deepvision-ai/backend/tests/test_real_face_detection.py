@@ -22,7 +22,7 @@ from PIL import Image
 from httpx import AsyncClient, ASGITransport
 
 from app.main import app
-from app.core.config import settings
+from app.core.config import settings, Settings
 from app.services.ai_service import AIService, get_ai_service
 from app.ai.detection.detector import FaceDetector
 from app.ai.detection.schemas import FrameInferenceResult, FaceDetection, BoundingBox, LandmarkPoint
@@ -267,3 +267,32 @@ def test_real_detector_lifecycle(real_detector, sample_portrait_np):
     # Verify detection works after reload
     res2 = real_detector.detect(sample_portrait_np)
     assert res2.face_count >= 1
+
+
+# -------------------------------------------------------------------------
+# Test 8: Configurable Confidence Threshold via Settings & Environment
+# -------------------------------------------------------------------------
+
+def test_confidence_threshold_configured_via_settings_not_hardcoded(monkeypatch):
+    """
+    Verify AI_CONFIDENCE_THRESHOLD is read from configuration / environment
+    and not hard-coded inside the detector.
+    """
+    # 1. Default threshold is 0.50
+    default_settings = Settings()
+    assert default_settings.AI_CONFIDENCE_THRESHOLD == 0.50
+
+    # 2. Configurable via environment variable
+    monkeypatch.setenv("AI_CONFIDENCE_THRESHOLD", "0.85")
+    custom_settings = Settings()
+    assert custom_settings.AI_CONFIDENCE_THRESHOLD == 0.85
+
+    # 3. Detector initializes using configured setting
+    model_path = custom_settings.resolve_model_path()
+    detector = FaceDetector(
+        model_path=model_path,
+        device="cpu",
+        confidence_threshold=custom_settings.AI_CONFIDENCE_THRESHOLD,
+    )
+    assert detector.confidence_threshold == 0.85
+

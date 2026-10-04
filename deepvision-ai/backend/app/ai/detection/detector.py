@@ -47,10 +47,18 @@ class FaceDetector(BaseFaceDetector):
         target_size: Tuple[int, int] = (640, 640),
         preprocessor: Optional[ImagePreprocessor] = None,
         adapter: Optional[BaseModelAdapter] = None,
+        confidence_threshold: Optional[float] = None,
     ):
+        from app.core.config import settings
+
         self.model_path = model_path
         self.device = resolve_device(device)
         self.target_size = target_size
+        self.confidence_threshold = (
+            float(confidence_threshold)
+            if confidence_threshold is not None
+            else float(settings.AI_CONFIDENCE_THRESHOLD)
+        )
         self.preprocessor = preprocessor or ImagePreprocessor(
             ImagePreprocessingConfig(target_size=target_size)
         )
@@ -90,7 +98,7 @@ class FaceDetector(BaseFaceDetector):
                     target_path,
                     "",
                     self.target_size,
-                    score_threshold=0.5,
+                    score_threshold=float(self.confidence_threshold),
                     nms_threshold=0.3,
                     top_k=5000,
                 )
@@ -133,7 +141,7 @@ class FaceDetector(BaseFaceDetector):
     def detect(
         self,
         image_input: ImageSource,
-        confidence_threshold: float = 0.5,
+        confidence_threshold: Optional[float] = None,
         **kwargs: Any,
     ) -> FrameInferenceResult:
         """
@@ -141,6 +149,12 @@ class FaceDetector(BaseFaceDetector):
         Returns standardized FrameInferenceResult schema rather than raw model tensors.
         """
         start_total = time.perf_counter()
+
+        threshold = (
+            float(confidence_threshold)
+            if confidence_threshold is not None
+            else float(self.confidence_threshold)
+        )
 
         # 1. Ingestion & Preprocessing
         start_prep = time.perf_counter()
@@ -155,7 +169,7 @@ class FaceDetector(BaseFaceDetector):
             # OpenCV native C++ DNN inference path for YuNet
             start_inf = time.perf_counter()
             self._cv2_detector.setInputSize((orig_w, orig_h))
-            self._cv2_detector.setScoreThreshold(float(confidence_threshold))
+            self._cv2_detector.setScoreThreshold(threshold)
 
             img_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
             _, raw_faces = self._cv2_detector.detect(img_bgr)
@@ -165,7 +179,7 @@ class FaceDetector(BaseFaceDetector):
             if raw_faces is not None:
                 for idx, face in enumerate(raw_faces):
                     conf = float(face[-1])
-                    if conf < float(confidence_threshold):
+                    if conf < threshold:
                         continue
 
                     fx, fy, fw, fh = face[0:4]
@@ -225,7 +239,7 @@ class FaceDetector(BaseFaceDetector):
 
             start_post = time.perf_counter()
             faces = self._parse_onnx_outputs(
-                outputs, image_rgb, prep_res.scale, prep_res.padding, (orig_h, orig_w), confidence_threshold
+                outputs, image_rgb, prep_res.scale, prep_res.padding, (orig_h, orig_w), threshold
             )
             post_time_ms = round((time.perf_counter() - start_post) * 1000, 2)
             model_name = self.engine.model_name
@@ -238,7 +252,7 @@ class FaceDetector(BaseFaceDetector):
 
             start_post = time.perf_counter()
             faces = self._baseline_inference(
-                image_rgb, (orig_h, orig_w), confidence_threshold
+                image_rgb, (orig_h, orig_w), threshold
             )
             post_time_ms = round((time.perf_counter() - start_post) * 1000, 2)
             model_name = "deepvision-baseline-detector"

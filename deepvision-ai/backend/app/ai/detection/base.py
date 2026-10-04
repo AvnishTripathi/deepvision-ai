@@ -36,7 +36,7 @@ class BaseFaceDetector(ABC):
     def detect(
         self,
         image_input: ImageSource,
-        confidence_threshold: float = 0.5,
+        confidence_threshold: Optional[float] = None,
         **kwargs: Any,
     ) -> FrameInferenceResult:
         """
