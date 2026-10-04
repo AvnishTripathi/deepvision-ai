@@ -5,7 +5,8 @@ Clean, scalable FastAPI service for DeepVision AI.
 
 import uuid
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, Request
+from typing import Callable, Awaitable, Dict, Any
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -38,7 +39,10 @@ register_exception_handlers(app)
 
 # Request ID tracing middleware
 @app.middleware("http")
-async def request_id_middleware(request: Request, call_next):
+async def request_id_middleware(
+    request: Request,
+    call_next: Callable[[Request], Awaitable[Response]],
+) -> Response:
     """Attaches a unique trace ID to each request and propagates it in response headers."""
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     request.state.request_id = request_id
@@ -61,7 +65,7 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 
 
 @app.get("/", tags=["Root"])
-def root():
+def root() -> Dict[str, Any]:
     return {
         "service": settings.SERVICE_NAME,
         "name": settings.APP_NAME,

@@ -35,7 +35,7 @@ class StructuredJsonFormatter(logging.Formatter):
         return json.dumps(log_record)
 
 
-def setup_logging():
+def setup_logging() -> None:
     """Configures application-wide logging."""
     log_level = logging.DEBUG if settings.DEBUG else logging.INFO
     log_format = "%(asctime)s | %(levelname)-8s | %(name)s:%(funcName)s:%(lineno)d - %(message)s"

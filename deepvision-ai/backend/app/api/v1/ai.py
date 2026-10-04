@@ -4,7 +4,6 @@ Provides development and production endpoints for face detection, image analysis
 and AI engine runtime status telemetry with hardened image safety controls.
 """
 
-import os
 import uuid
 import logging
 from typing import Optional
@@ -18,10 +17,6 @@ from app.core.image_security import (
     sanitize_filename,
 )
 from app.core.exceptions import (
-    UnsupportedImageError,
-    EmptyImageException,
-    ImageTooLargeException,
-    InvalidImageDimensionsException,
     DetectorNotConfiguredException,
     InferenceError,
 )

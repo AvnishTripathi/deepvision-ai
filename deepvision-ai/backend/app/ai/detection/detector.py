@@ -7,29 +7,22 @@ model inference, landmark parsing, and face quality evaluation into standardized
 import time
 import os
 import logging
-from typing import Union, Optional, List, Tuple, Any
+from typing import Optional, List, Tuple, Any
 import numpy as np
-from PIL import Image
 
 from app.ai.common.types import ImageSource
 from app.ai.detection.schemas import (
     BoundingBox,
-    NormalizedBoundingBox,
     LandmarkPoint,
     FaceDetection,
     FaceDetectionResult,
     FrameInferenceResult,
-    DetectionResponse,
-    FaceQualityScore,
 )
 from app.ai.detection.base import BaseFaceDetector
 from app.ai.detection.preprocessing import (
     ImagePreprocessor,
     ImagePreprocessingConfig,
     PreprocessedImage,
-    load_image,
-    prepare_input_tensor,
-    unletterbox_coordinates,
 )
 from app.ai.detection.adapter import BaseModelAdapter, SCRFDAdapter
 from app.ai.analysis.quality import analyze_face_quality

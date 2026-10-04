@@ -5,7 +5,7 @@ letterboxing, and tensor preparation. Decoupled from specific detector architect
 """
 
 from dataclasses import dataclass
-from typing import Union, Tuple, Optional
+from typing import Tuple, Optional
 import os
 import cv2
 import numpy as np

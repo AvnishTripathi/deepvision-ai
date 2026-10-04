@@ -4,6 +4,7 @@ Evaluates image clarity, blurriness, exposure, and contrast to provide
 explainable quality scores for detected faces.
 """
 
+from typing import Tuple
 import cv2
 import numpy as np
 from app.schemas.ai import FaceQualityScore
@@ -20,7 +21,7 @@ def compute_sharpness(crop_rgb: np.ndarray) -> float:
     return round(variance, 2)
 
 
-def compute_brightness_and_contrast(crop_rgb: np.ndarray) -> tuple[float, float]:
+def compute_brightness_and_contrast(crop_rgb: np.ndarray) -> Tuple[float, float]:
     """
     Computes mean luminance (brightness) and standard deviation (contrast).
     Brightness: 0 (pitch black) to 255 (overexposed).

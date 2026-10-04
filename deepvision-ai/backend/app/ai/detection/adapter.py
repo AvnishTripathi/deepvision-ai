@@ -6,7 +6,7 @@ Decouples specific model head architectures (SCRFD, YuNet, YOLO) from the detect
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Tuple, Dict, Any, Optional
+from typing import List, Tuple
 import numpy as np
 
 from app.ai.detection.schemas import (

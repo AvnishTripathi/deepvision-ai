@@ -17,10 +17,10 @@ import re
 import uuid
 import tempfile
 import logging
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Generator
 from contextlib import contextmanager
 import numpy as np
-from PIL import Image, ImageOps
+from PIL import Image
 import cv2
 from fastapi import UploadFile
 
@@ -256,7 +256,7 @@ def validate_and_decode_image_security(
 
 
 @contextmanager
-def secure_temporary_image(data: bytes, suffix: str = ".jpg"):
+def secure_temporary_image(data: bytes, suffix: str = ".jpg") -> Generator[str, None, None]:
     """
     Context manager for isolated temporary file processing when third-party
     tools strictly require a filesystem path.

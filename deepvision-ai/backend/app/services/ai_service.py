@@ -5,9 +5,7 @@ Maintains strict architectural separation: API -> AI Service -> Detector Interfa
 """
 
 import logging
-from typing import Optional, Dict, Any, Union
-import numpy as np
-from PIL import Image
+from typing import Optional, Dict, Any
 
 from app.core.config import settings, Settings
 from app.core.exceptions import ImageTooLargeException

@@ -4,11 +4,10 @@ Determines optimal runtime hardware (AUTO, CPU, GPU) and manages execution provi
 Designed to never crash if GPU acceleration is unavailable.
 """
 
-import os
 import multiprocessing
 import logging
 from typing import List, Dict, Any, Union, Optional
-from app.ai.common.types import DeviceType, DeviceTarget
+from app.ai.common.types import DeviceType
 
 logger = logging.getLogger("deepvision.ai.device")
 
