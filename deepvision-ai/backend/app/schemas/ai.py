@@ -248,6 +248,12 @@ class FrameInferenceResult(DetectionResponse):
                 data["faces"] = data["detections"]
         return data
 
+    @property
+    def total_processing_time_ms(self) -> float:
+        """Alias for total end-to-end processing duration (ms)."""
+        return self.total_time_ms if self.total_time_ms > 0 else self.processing_time_ms
+
+
 
 class PerformanceMetrics(BaseModel):
     """Aggregated inference performance monitoring metrics."""
@@ -306,6 +312,14 @@ class ImageDimensions(BaseModel):
     height: int = Field(..., description="Image height in pixels")
 
 
+class PerformanceBreakdown(BaseModel):
+    """Granular latency telemetry across pipeline stages in milliseconds."""
+    preprocessing_time_ms: float = Field(0.0, description="Image ingestion & color conversion latency (ms)")
+    inference_time_ms: float = Field(0.0, description="Model forward-pass latency (ms)")
+    postprocessing_time_ms: float = Field(0.0, description="Postprocessing, NMS & box clipping latency (ms)")
+    total_processing_time_ms: float = Field(0.0, description="Total end-to-end pipeline latency (ms)")
+
+
 class AIDetectionResponse(BaseModel):
     """
     Standard development AI detection endpoint response.
@@ -327,6 +341,7 @@ class AIDetectionResponse(BaseModel):
     processing_time_ms: float = Field(..., description="Total pipeline latency in milliseconds")
     face_count: int = Field(0, description="Total number of detected faces")
     faces: List[DetectedFaceItem] = Field(default_factory=list, description="List of detected faces")
+    timing: Optional[PerformanceBreakdown] = Field(default=None, description="Granular latency telemetry breakdown (ms)")
     request_id: Optional[str] = Field(default=None, description="Unique request trace identifier")
 
     model_config = ConfigDict(populate_by_name=True)
@@ -338,6 +353,10 @@ class AIDetectionResponse(BaseModel):
             if "face_count" not in data and "faces" in data and isinstance(data["faces"], list):
                 data["face_count"] = len(data["faces"])
         return data
+
+    @property
+    def total_processing_time_ms(self) -> float:
+        return self.timing.total_processing_time_ms if self.timing else self.processing_time_ms
 
 
 class AIDetectionErrorResponse(BaseModel):

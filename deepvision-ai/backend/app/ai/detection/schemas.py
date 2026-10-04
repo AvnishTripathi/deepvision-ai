@@ -17,6 +17,7 @@ from app.schemas.ai import (
     FaceBoundingBox,
     DetectedFaceItem,
     ImageDimensions,
+    PerformanceBreakdown,
     AIDetectionResponse,
     AIDetectionErrorResponse,
 )
@@ -34,6 +35,7 @@ __all__ = [
     "FaceBoundingBox",
     "DetectedFaceItem",
     "ImageDimensions",
+    "PerformanceBreakdown",
     "AIDetectionResponse",
     "AIDetectionErrorResponse",
 ]

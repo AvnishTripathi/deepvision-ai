@@ -26,6 +26,7 @@ from app.schemas.ai import (
     FaceBoundingBox,
     DetectedFaceItem,
     ImageDimensions,
+    PerformanceBreakdown,
 )
 from app.services.ai_service import AIService, get_ai_service
 
@@ -156,7 +157,15 @@ async def detect_faces(
         for d in detection_result.detections
     ]
 
-    # 7. Structured Telemetry Logging (Guaranteed zero image content logged)
+    # 7. Granular Performance Breakdown Telemetry (Step 3, Task 12)
+    timing_breakdown = PerformanceBreakdown(
+        preprocessing_time_ms=round(detection_result.preprocessing_time_ms, 2),
+        inference_time_ms=round(detection_result.inference_time_ms, 2),
+        postprocessing_time_ms=round(detection_result.postprocessing_time_ms, 2),
+        total_processing_time_ms=round(detection_result.total_processing_time_ms, 2),
+    )
+
+    # Structured Telemetry Logging (Guaranteed zero image content logged)
     log_ai_inference(
         logger_instance=logger,
         model=detection_result.model_name or settings.AI_MODEL_NAME,
@@ -166,6 +175,7 @@ async def detect_faces(
         number_of_faces=len(face_items),
         processing_time_ms=detection_result.processing_time_ms,
         request_id=request_id,
+        extra_metrics=timing_breakdown.model_dump(),
     )
 
     return AIDetectionResponse(
@@ -176,6 +186,7 @@ async def detect_faces(
         processing_time_ms=round(detection_result.processing_time_ms, 2),
         face_count=len(face_items),
         faces=face_items,
+        timing=timing_breakdown,
         request_id=request_id,
     )
 

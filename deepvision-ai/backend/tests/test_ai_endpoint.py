@@ -322,3 +322,54 @@ async def test_ai_status_endpoint():
         assert data["model_name"] == settings.AI_MODEL_NAME
         assert data["max_image_size_mb"] == settings.AI_MAX_IMAGE_SIZE_MB
         assert "telemetry" in data
+
+
+# -------------------------------------------------------------------------
+# Test 9: Granular Performance Telemetry Breakdown (Step 3, Task 12)
+# -------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_detect_endpoint_timing_telemetry_breakdown(valid_jpeg_bytes):
+    """
+    Verify POST /api/v1/ai/detect returns granular latency telemetry:
+    - preprocessing_time_ms
+    - inference_time_ms
+    - postprocessing_time_ms
+    - total_processing_time_ms
+    """
+    mock_detector = MagicMock(spec=BaseFaceDetector)
+    mock_detector.is_loaded = True
+
+    mock_detector.detect.return_value = FrameInferenceResult(
+        image_width=640,
+        image_height=480,
+        preprocessing_time_ms=1.2,
+        inference_time_ms=18.5,
+        postprocessing_time_ms=2.1,
+        total_time_ms=21.8,
+        processing_time_ms=21.8,
+        device="cpu",
+        model_name="yunet",
+        detections=[],
+    )
+
+    operational_service = AIService(detector=mock_detector)
+    app.dependency_overrides[get_ai_service] = lambda: operational_service
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            files = {"file": ("test.jpg", valid_jpeg_bytes, "image/jpeg")}
+            response = await client.post("/api/v1/ai/detect", files=files)
+
+            assert response.status_code == 200
+            data = response.json()
+            assert "timing" in data
+            timing = data["timing"]
+            assert timing["preprocessing_time_ms"] == 1.2
+            assert timing["inference_time_ms"] == 18.5
+            assert timing["postprocessing_time_ms"] == 2.1
+            assert timing["total_processing_time_ms"] == 21.8
+    finally:
+        app.dependency_overrides.clear()
+
