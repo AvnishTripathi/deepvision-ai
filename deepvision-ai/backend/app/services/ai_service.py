@@ -28,16 +28,19 @@ class AIService:
         self,
         detector: Optional[BaseFaceDetector] = None,
         config: Optional[Settings] = None,
+        model_path: Optional[str] = None,
     ):
         self.config = config or settings
         self._detector = detector or FaceDetector(
+            model_path=model_path,
             device=self.config.AI_DEVICE,
             target_size=(640, 640),
         )
         logger.info(
-            "AIService initialized with device: %s, model: %s",
+            "AIService initialized with device: %s, model: %s, model_path: %s",
             self.config.AI_DEVICE,
             self.config.AI_MODEL_NAME,
+            model_path,
         )
 
     @property
@@ -128,5 +131,6 @@ def get_ai_service() -> AIService:
     """Dependency provider / accessor for the AIService singleton."""
     global _ai_service_instance
     if _ai_service_instance is None:
-        _ai_service_instance = AIService()
+        model_path = settings.resolve_model_path()
+        _ai_service_instance = AIService(model_path=model_path)
     return _ai_service_instance

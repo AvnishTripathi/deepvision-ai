@@ -9,6 +9,7 @@ import os
 import logging
 from typing import Optional, List, Tuple, Any
 import numpy as np
+import cv2
 
 from app.ai.common.types import ImageSource
 from app.ai.detection.schemas import (
@@ -55,6 +56,7 @@ class FaceDetector(BaseFaceDetector):
         )
         self.adapter = adapter or SCRFDAdapter()
         self.engine: Optional[InferenceRuntime] = None
+        self._cv2_detector: Optional[Any] = None
 
         if model_path:
             self.load_model(model_path, self.device)
@@ -65,7 +67,8 @@ class FaceDetector(BaseFaceDetector):
         device: Optional[str] = None,
     ) -> None:
         """
-        Loads the detection model weights and initializes the inference runtime session.
+        Loads detection model weights and initializes runtime inference sessions.
+        Supports both OpenCV native FaceDetectorYN and multi-threaded ONNX Runtime.
         """
         target_path = model_path or self.model_path
         target_device = resolve_device(device) if device else self.device
@@ -73,25 +76,48 @@ class FaceDetector(BaseFaceDetector):
         self.model_path = target_path
         self.device = target_device
 
-        if target_path and os.path.exists(target_path):
-            try:
-                self.engine = InferenceRuntime(
-                    model_name="deepvision-face-detector",
-                    model_path=target_path,
-                    device=target_device,
-                )
-                logger.info("Face detector loaded model from %s on device: %s", target_path, target_device)
-            except Exception as exc:
-                logger.warning("Failed initializing inference runtime from %s: %s", target_path, exc)
-                self.engine = None
-        else:
+        if not target_path or not os.path.exists(target_path):
             logger.info("No physical model file at '%s'; baseline detection engine active.", target_path)
+            self.engine = None
+            self._cv2_detector = None
+            return
+
+        # 1. Attempt loading YuNet model using OpenCV FaceDetectorYN
+        is_yunet = "yunet" in os.path.basename(target_path).lower()
+        if is_yunet and hasattr(cv2, "FaceDetectorYN"):
+            try:
+                self._cv2_detector = cv2.FaceDetectorYN.create(
+                    target_path,
+                    "",
+                    self.target_size,
+                    score_threshold=0.5,
+                    nms_threshold=0.3,
+                    top_k=5000,
+                )
+                logger.info("Face detector loaded YuNet model via OpenCV FaceDetectorYN from %s", target_path)
+                return
+            except Exception as exc:
+                logger.warning("Failed initializing cv2.FaceDetectorYN: %s. Falling back to ONNX Runtime.", exc)
+                self._cv2_detector = None
+
+        # 2. General ONNX Runtime engine
+        try:
+            self.engine = InferenceRuntime(
+                model_name=os.path.splitext(os.path.basename(target_path))[0],
+                model_path=target_path,
+                device=target_device,
+            )
+            logger.info("Face detector loaded model from %s on device: %s via ONNX Runtime", target_path, target_device)
+        except Exception as exc:
+            logger.warning("Failed initializing inference runtime from %s: %s", target_path, exc)
             self.engine = None
 
     def unload(self) -> None:
         """
         Unloads model session, releasing system memory, thread pools, and VRAM.
         """
+        if self._cv2_detector is not None:
+            self._cv2_detector = None
         if self.engine is not None:
             logger.info("Unloading face detection model '%s' from device %s.", self.model_path, self.device)
             self.engine = None
@@ -100,6 +126,8 @@ class FaceDetector(BaseFaceDetector):
     @property
     def is_loaded(self) -> bool:
         """Indicates whether an active model engine session is currently loaded."""
+        if self._cv2_detector is not None:
+            return True
         return self.engine is not None and self.engine.is_loaded
 
     def detect(
@@ -116,27 +144,76 @@ class FaceDetector(BaseFaceDetector):
 
         # 1. Ingestion & Preprocessing
         start_prep = time.perf_counter()
-        prep_res: PreprocessedImage = self.preprocessor.process(image_input)
-        input_tensor = prep_res.tensor
-        image_rgb = prep_res.original_image
-        orig_h, orig_w = prep_res.original_shape
-        scale = prep_res.scale
-        padding = prep_res.padding
+        image_rgb = self.preprocessor.load_image(image_input)
+        orig_h, orig_w = image_rgb.shape[:2]
         prep_time_ms = round((time.perf_counter() - start_prep) * 1000, 2)
 
-        # 2. Forward-Pass Model Inference
-        start_inf = time.perf_counter()
         faces: List[FaceDetectionResult] = []
 
-        if self.engine and self.engine.is_loaded:
-            # Hardware-accelerated ONNX Inference path
-            outputs = self.engine.predict(input_tensor)
+        # 2. Forward-Pass Model Inference
+        if self._cv2_detector is not None:
+            # OpenCV native C++ DNN inference path for YuNet
+            start_inf = time.perf_counter()
+            self._cv2_detector.setInputSize((orig_w, orig_h))
+            self._cv2_detector.setScoreThreshold(float(confidence_threshold))
+
+            img_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
+            _, raw_faces = self._cv2_detector.detect(img_bgr)
             inf_time_ms = round((time.perf_counter() - start_inf) * 1000, 2)
 
-            # 3. Post-Processing & Parsing
+            start_post = time.perf_counter()
+            if raw_faces is not None:
+                for idx, face in enumerate(raw_faces):
+                    fx, fy, fw, fh = face[0:4]
+                    x1 = max(0.0, float(fx))
+                    y1 = max(0.0, float(fy))
+                    x2 = min(float(orig_w), float(fx + fw))
+                    y2 = min(float(orig_h), float(fy + fh))
+                    conf = float(face[-1])
+
+                    bbox = BoundingBox(
+                        x1=round(x1, 2),
+                        y1=round(y1, 2),
+                        x2=round(x2, 2),
+                        y2=round(y2, 2),
+                    )
+                    norm_bbox = bbox.to_normalized(orig_w, orig_h)
+
+                    # 5 standard facial landmarks (order: right_eye, left_eye, nose_tip, mouth_right, mouth_left)
+                    landmarks = [
+                        LandmarkPoint(name="right_eye", x=round(float(face[4]), 2), y=round(float(face[5]), 2)),
+                        LandmarkPoint(name="left_eye", x=round(float(face[6]), 2), y=round(float(face[7]), 2)),
+                        LandmarkPoint(name="nose_tip", x=round(float(face[8]), 2), y=round(float(face[9]), 2)),
+                        LandmarkPoint(name="mouth_right", x=round(float(face[10]), 2), y=round(float(face[11]), 2)),
+                        LandmarkPoint(name="mouth_left", x=round(float(face[12]), 2), y=round(float(face[13]), 2)),
+                    ]
+
+                    crop = image_rgb[int(y1):int(y2), int(x1):int(x2)]
+                    quality = analyze_face_quality(crop)
+
+                    faces.append(FaceDetection(
+                        face_id=idx,
+                        bbox=bbox,
+                        confidence=round(conf, 4),
+                        landmarks=landmarks,
+                        normalized_bbox=norm_bbox,
+                        quality=quality,
+                        metadata={"backend": "opencv_yunet", "resolution": f"{orig_w}x{orig_h}"},
+                    ))
+            post_time_ms = round((time.perf_counter() - start_post) * 1000, 2)
+            model_name = self.model_path and os.path.splitext(os.path.basename(self.model_path))[0] or "yunet"
+            runtime_provider = "OpenCV-DNN"
+
+        elif self.engine and self.engine.is_loaded:
+            # Hardware-accelerated ONNX Inference path
+            prep_res: PreprocessedImage = self.preprocessor.process(image_rgb)
+            start_inf = time.perf_counter()
+            outputs = self.engine.predict(prep_res.tensor)
+            inf_time_ms = round((time.perf_counter() - start_inf) * 1000, 2)
+
             start_post = time.perf_counter()
             faces = self._parse_onnx_outputs(
-                outputs, image_rgb, scale, padding, (orig_h, orig_w), confidence_threshold
+                outputs, image_rgb, prep_res.scale, prep_res.padding, (orig_h, orig_w), confidence_threshold
             )
             post_time_ms = round((time.perf_counter() - start_post) * 1000, 2)
             model_name = self.engine.model_name
@@ -144,7 +221,7 @@ class FaceDetector(BaseFaceDetector):
 
         else:
             # Baseline inference path (used for verification before model weights deployment)
-            _ = np.sum(input_tensor[:, :, ::4, ::4])
+            start_inf = time.perf_counter()
             inf_time_ms = round((time.perf_counter() - start_inf) * 1000, 2)
 
             start_post = time.perf_counter()

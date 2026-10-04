@@ -38,6 +38,7 @@ backend/uploads/
 *.png
 *.mp4
 *.avi
+!deepvision-ai/backend/tests/fixtures/*
 
 # Model Binaries & Heavy Weights (Never commit binaries)
 models/**/*.onnx

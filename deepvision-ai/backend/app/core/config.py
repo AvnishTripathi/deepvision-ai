@@ -4,6 +4,7 @@ Provides strongly typed, validated settings powered by Pydantic Settings.
 Configuration is loaded from environment variables and .env files.
 """
 
+import os
 from typing import List, Optional, Any, Union
 import json
 from pydantic import field_validator
@@ -41,6 +42,7 @@ class Settings(BaseSettings):
     AI_MAX_IMAGE_SIZE_MB: int = 10
     AI_MAX_IMAGE_DIMENSION: int = 4096
     AI_ENABLE_GPU: bool = False
+    AI_MODEL_PATH: Optional[str] = None
 
     # Storage Paths & Limits
     STORAGE_DIR: str = "./storage"
@@ -149,6 +151,44 @@ class Settings(BaseSettings):
     @property
     def is_testing(self) -> bool:
         return self.ENVIRONMENT.lower() in ("test", "testing")
+
+    def resolve_model_path(self, model_name: Optional[str] = None) -> Optional[str]:
+        """
+        Locates physical ONNX model weights on disk across standard repository search paths.
+        Returns the resolved absolute path or None if no weights are found.
+        """
+        if self.AI_MODEL_PATH and os.path.exists(self.AI_MODEL_PATH):
+            return os.path.abspath(self.AI_MODEL_PATH)
+
+        name = model_name or self.AI_MODEL_NAME
+        candidate_filenames = [
+            f"{name}.onnx",
+            "face_detection_yunet_2023mar.onnx",
+            "scrfd_500m_bnkps_shape640x640.onnx",
+            "scrfd_500m.onnx",
+        ]
+
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        search_dirs = [
+            os.path.abspath(os.path.join(self.MODELS_DIR, "face_detection")),
+            os.path.abspath(os.path.join(base_dir, "../../../models/face_detection")),
+            os.path.abspath(os.path.join(base_dir, "../../../../models/face_detection")),
+            os.path.abspath("./models/face_detection"),
+            os.path.abspath("../models/face_detection"),
+            os.path.abspath("./deepvision-ai/models/face_detection"),
+        ]
+
+        for s_dir in search_dirs:
+            if os.path.isdir(s_dir):
+                for fname in candidate_filenames:
+                    cand = os.path.join(s_dir, fname)
+                    if os.path.exists(cand):
+                        return cand
+                for f in os.listdir(s_dir):
+                    if f.endswith(".onnx"):
+                        return os.path.join(s_dir, f)
+
+        return None
 
     model_config = SettingsConfigDict(
         env_file=(".env", "../.env"),

@@ -64,21 +64,29 @@ async def test_detect_endpoint_returns_development_error_when_model_not_configur
     endpoint returns HTTP 503 and structured development error explaining
     that the detector is not configured. NEVER returns fabricated detections.
     """
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
-        files = {"file": ("test_face.jpg", valid_jpeg_bytes, "image/jpeg")}
-        response = await client.post("/api/v1/ai/detect", files=files)
+    mock_unconfigured = MagicMock(spec=BaseFaceDetector)
+    mock_unconfigured.is_loaded = False
+    unconfigured_service = AIService(detector=mock_unconfigured)
+    app.dependency_overrides[get_ai_service] = lambda: unconfigured_service
 
-        assert response.status_code == 503
-        data = response.json()
-        assert data["success"] is False
-        assert data["error"] == "detector_not_configured"
-        assert "not operational" in data["message"]
-        assert "models/face_detection" in data["detail"]
-        assert data["model"] == settings.AI_MODEL_NAME
-        assert data["device"] == settings.AI_DEVICE.upper()
-        # Verify NO fabricated detections were returned
-        assert "faces" not in data or data.get("faces") is None
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            files = {"file": ("test_face.jpg", valid_jpeg_bytes, "image/jpeg")}
+            response = await client.post("/api/v1/ai/detect", files=files)
+
+            assert response.status_code == 503
+            data = response.json()
+            assert data["success"] is False
+            assert data["error"] == "detector_not_configured"
+            assert "not operational" in data["message"]
+            assert "models/face_detection" in data["detail"]
+            assert data["model"] == settings.AI_MODEL_NAME
+            assert data["device"] == settings.AI_DEVICE.upper()
+            # Verify NO fabricated detections were returned
+            assert "faces" not in data or data.get("faces") is None
+    finally:
+        app.dependency_overrides.clear()
 
 
 # -------------------------------------------------------------------------
