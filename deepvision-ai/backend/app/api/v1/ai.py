@@ -1,7 +1,7 @@
 """
 DeepVision AI — AI Inference & Face Detection API Router
 Provides development and production endpoints for face detection, image analysis,
-and AI engine runtime status telemetry.
+and AI engine runtime status telemetry with hardened image safety controls.
 """
 
 import os
@@ -12,6 +12,11 @@ from fastapi import APIRouter, Request, UploadFile, File, Query, Depends
 
 from app.core.config import settings
 from app.core.logging import log_ai_inference
+from app.core.image_security import (
+    read_upload_stream_safely,
+    validate_and_decode_image_security,
+    sanitize_filename,
+)
 from app.core.exceptions import (
     UnsupportedImageError,
     EmptyImageException,
@@ -20,7 +25,6 @@ from app.core.exceptions import (
     DetectorNotConfiguredException,
     InferenceError,
 )
-from app.ai.detection.preprocessing import load_image
 from app.schemas.ai import (
     AIDetectionResponse,
     AIDetectionErrorResponse,
@@ -33,16 +37,6 @@ from app.services.ai_service import AIService, get_ai_service
 logger = logging.getLogger("deepvision.api.ai")
 
 router = APIRouter(prefix="/ai", tags=["AI Detection"])
-
-ALLOWED_IMAGE_MIME_TYPES = {
-    "image/jpeg",
-    "image/jpg",
-    "image/png",
-    "image/webp",
-    "image/bmp",
-}
-
-ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 
 
 @router.post(
@@ -74,64 +68,36 @@ async def detect_faces(
     ai_service: AIService = Depends(get_ai_service),
 ):
     """
-    Ingests and validates image upload, enforces payload and dimension limits,
-    verifies detector operational state, and executes face detection inference.
-    All errors raise domain-specific AI exceptions mapped to sanitized HTTP responses.
-
-    Data Retention & Privacy:
-    - In-Memory Processing: Images are decoded in volatile memory and never persisted to disk.
-    - Zero Payload Logging: Raw pixel data, base64 strings, and binary buffers are NEVER logged.
+    Ingests and validates image upload with defense-in-depth safety controls:
+    - MIME type & binary magic number verification
+    - Stream chunk reading with hard byte caps (mitigates memory exhaustion DoS)
+    - Untrusted filename sanitization
+    - Decompression bomb / pixel flood attack mitigation
+    - Hard image dimension enforcement
+    - Pure in-memory processing (zero unnecessary disk persistence)
+    - Zero raw image data logging
     """
-    # Resolve or extract request tracing identifier
+    # 1. Resolve request tracing identifier & sanitize untrusted filename
     request_id = getattr(request.state, "request_id", None) or request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    safe_filename = sanitize_filename(file.filename)
 
-    filename = file.filename or ""
-    content_type = (file.content_type or "").lower().strip()
-    ext = os.path.splitext(filename.lower())[1]
+    # 2. Memory-Safe Stream Reading with Hard Payload Cap
+    content = await read_upload_stream_safely(
+        file=file,
+        max_bytes=settings.ai_max_image_bytes,
+    )
 
-    # 1. File Type Validation (MIME type & extension)
-    if content_type not in ALLOWED_IMAGE_MIME_TYPES and ext not in ALLOWED_EXTENSIONS:
-        logger.warning(
-            "Rejected file with invalid type [request_id=%s]: content_type='%s', ext='%s'",
-            request_id,
-            content_type,
-            ext,
-        )
-        raise UnsupportedImageError(
-            message=(
-                f"Unsupported file type '{content_type or ext}'. "
-                f"Allowed formats: image/jpeg, image/png, image/webp, image/bmp."
-            )
-        )
+    # 3. Comprehensive Image Safety Validation & In-Memory RGB Decoding
+    # Inspects declared MIME, checks magic bytes, verifies container structure,
+    # and enforces resolution bounds strictly in volatile memory.
+    image_np, verified_format, (w, h) = validate_and_decode_image_security(
+        data=content,
+        declared_content_type=file.content_type,
+        declared_filename=file.filename,
+        max_dimension=settings.AI_MAX_IMAGE_DIMENSION,
+    )
 
-    # 2. File Size & In-Memory Payload Stream Reading
-    try:
-        content = await file.read()
-    except Exception as exc:
-        logger.error("Failed reading uploaded file stream [request_id=%s]: %s", request_id, exc, exc_info=True)
-        raise EmptyImageException("Failed to read uploaded file payload stream.")
-
-    if len(content) == 0:
-        raise EmptyImageException("Uploaded file is empty (0 bytes).")
-
-    if len(content) > settings.ai_max_image_bytes:
-        raise ImageTooLargeException(
-            f"Image payload size ({len(content)} bytes) exceeds configured limit "
-            f"of {settings.AI_MAX_IMAGE_SIZE_MB}MB ({settings.ai_max_image_bytes} bytes)."
-        )
-
-    # 3. Corrupted Image Decoding & Dimension Verification (In-memory only, no disk writes)
-    image_np = load_image(content)
-
-    # 4. Explicit Image Dimensions Limit Check
-    h, w = image_np.shape[:2]
-    if h > settings.AI_MAX_IMAGE_DIMENSION or w > settings.AI_MAX_IMAGE_DIMENSION:
-        raise InvalidImageDimensionsException(
-            f"Image resolution {w}x{h} exceeds maximum allowed dimension "
-            f"of {settings.AI_MAX_IMAGE_DIMENSION}px."
-        )
-
-    # 5. Operational Detector Check
+    # 4. Operational Detector Check
     # Never return fabricated detections. If the model is not operational,
     # raise DetectorNotConfiguredException mapped to HTTP 503.
     if not ai_service.is_operational:
@@ -156,7 +122,7 @@ async def detect_faces(
             device=settings.AI_DEVICE.upper(),
         )
 
-    # 6. Execute Real Model Inference (Real detections only — never fabricated)
+    # 5. Execute Real Model Inference (Real detections only — never fabricated)
     try:
         detection_result = ai_service.detect_faces(
             image_input=image_np,
@@ -179,7 +145,7 @@ async def detect_faces(
             model_name=settings.AI_MODEL_NAME,
         )
 
-    # 7. Format Real Structured Output
+    # 6. Format Real Structured Output
     face_items = [
         DetectedFaceItem(
             bbox=FaceBoundingBox(
@@ -194,7 +160,7 @@ async def detect_faces(
         for d in detection_result.detections
     ]
 
-    # 8. Structured Telemetry Logging (Guaranteed zero image content logged)
+    # 7. Structured Telemetry Logging (Guaranteed zero image content logged)
     log_ai_inference(
         logger_instance=logger,
         model=detection_result.model_name or settings.AI_MODEL_NAME,
