@@ -11,7 +11,7 @@ from typing import Union, Optional, List
 import numpy as np
 from PIL import Image
 
-from app.schemas.ai import (
+from app.ai.detection.schemas import (
     BoundingBox,
     LandmarkPoint,
     FaceDetectionResult,
@@ -19,13 +19,13 @@ from app.schemas.ai import (
     FaceQualityScore,
 )
 from app.ai.detection.base import BaseFaceDetector
-from app.ai.preprocessing import (
+from app.ai.detection.preprocessing import (
     load_image,
     prepare_input_tensor,
     unletterbox_coordinates,
 )
 from app.ai.analysis.quality import analyze_face_quality
-from app.ai.inference.onnx_engine import ONNXInferenceEngine
+from app.ai.inference.runtime import InferenceRuntime
 
 logger = logging.getLogger("deepvision.ai.detection")
 
@@ -45,18 +45,18 @@ class FaceDetector(BaseFaceDetector):
         self.model_path = model_path
         self.device = device
         self.target_size = target_size
-        self.engine: Optional[ONNXInferenceEngine] = None
+        self.engine: Optional[InferenceRuntime] = None
 
         if model_path and os.path.exists(model_path):
             try:
-                self.engine = ONNXInferenceEngine(
+                self.engine = InferenceRuntime(
                     model_name="deepvision-face-detector",
                     model_path=model_path,
                     device=device,
                 )
-                logger.info("ONNX Face Detection engine initialized from: %s", model_path)
+                logger.info("Inference runtime initialized from: %s", model_path)
             except Exception as exc:
-                logger.warning("Failed to initialize ONNX engine from %s: %s", model_path, exc)
+                logger.warning("Failed to initialize inference runtime from %s: %s", model_path, exc)
                 self.engine = None
 
     def detect(
@@ -205,3 +205,4 @@ class FaceDetector(BaseFaceDetector):
         faces: List[FaceDetectionResult] = []
         # Handled according to specific ONNX anchor-free detection head layout
         return faces
+

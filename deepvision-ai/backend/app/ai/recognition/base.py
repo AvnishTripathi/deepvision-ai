@@ -23,3 +23,4 @@ class BaseIdentityVerifier(ABC):
     def verify_identity(self, source_embedding: np.ndarray, target_embedding: np.ndarray, threshold: float = 0.6) -> bool:
         """Computes cosine similarity between authorized embeddings."""
         pass
+

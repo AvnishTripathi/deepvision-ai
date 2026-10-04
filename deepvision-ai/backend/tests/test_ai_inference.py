@@ -29,7 +29,8 @@ from app.schemas.ai import (
     PerformanceMetrics,
 )
 from app.ai.detection.detector import FaceDetector
-from app.ai.inference.onnx_engine import ONNXInferenceEngine
+from app.ai.inference.runtime import InferenceRuntime
+from app.ai.inference.device import resolve_device, is_cuda_available, get_device_telemetry
 
 
 @pytest.fixture
@@ -166,3 +167,44 @@ def test_face_detector_end_to_end_pipeline(sample_synthetic_image):
     assert result.postprocessing_time_ms >= 0.0
     assert result.total_time_ms > 0.0
     assert result.device_used == "cpu"
+
+
+def test_device_telemetry_and_resolution():
+    """Verify hardware resolution logic and device telemetry."""
+    telemetry = get_device_telemetry()
+    assert "active_device" in telemetry
+    assert "cuda_available" in telemetry
+    assert "cpu_cores" in telemetry
+    assert telemetry["cpu_cores"] >= 1
+    assert telemetry["recommended_threads"] >= 1
+    assert "optimal_providers" in telemetry
+
+    # Test device fallback
+    assert resolve_device("cpu") == "cpu"
+    # When CUDA is not available, auto or cuda gracefully falls back to cpu
+    if not is_cuda_available():
+        assert resolve_device("cuda") == "cpu"
+        assert resolve_device("auto") == "cpu"
+
+
+def test_ai_engine_package_imports():
+    """Verify clean modular structure imports from backend/app/ai packages."""
+    import app.ai as ai
+    import app.ai.detection as detection
+    import app.ai.inference as inference
+    import app.ai.analysis as analysis
+    import app.ai.tracking as tracking
+    import app.ai.recognition as recognition
+    import app.ai.common as common
+
+    assert hasattr(ai, "FaceDetector")
+    assert hasattr(ai, "InferenceRuntime")
+    assert hasattr(ai, "BoundingBox")
+    assert hasattr(detection, "FaceDetector")
+    assert hasattr(detection, "BaseFaceDetector")
+    assert hasattr(detection, "load_image")
+    assert hasattr(inference, "InferenceRuntime")
+    assert hasattr(inference, "resolve_device")
+    assert hasattr(analysis, "analyze_face_quality")
+    assert hasattr(common, "ModelArchitecture")
+

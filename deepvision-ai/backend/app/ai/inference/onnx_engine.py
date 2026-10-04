@@ -85,3 +85,4 @@ class ONNXInferenceEngine(BaseInferenceEngine):
             "output_names": self.output_names,
             "is_loaded": self._is_loaded,
         }
+

@@ -87,3 +87,4 @@ def analyze_face_quality(
         contrast=contrast,
         is_usable=is_usable,
     )
+

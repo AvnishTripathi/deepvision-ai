@@ -13,3 +13,4 @@ __all__ = [
     "compute_brightness_and_contrast",
     "analyze_face_quality",
 ]
+

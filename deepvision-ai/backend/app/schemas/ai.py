@@ -86,3 +86,4 @@ class PerformanceMetrics(BaseModel):
     fps: float = Field(0.0, description="Processed frames per second")
     device: str = Field("cpu", description="Active computing hardware")
     runtime: str = Field("CPUExecutionProvider", description="Execution provider used")
+

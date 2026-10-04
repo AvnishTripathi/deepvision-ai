@@ -40,3 +40,4 @@ class BaseInferenceEngine(ABC):
     def get_metadata(self) -> Dict[str, Any]:
         """Returns engine and model metadata (inputs, outputs, provider, device)."""
         pass
+

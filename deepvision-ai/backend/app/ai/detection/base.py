@@ -31,3 +31,4 @@ class BaseFaceDetector(ABC):
             facial landmarks, quality analytics, and timing latency.
         """
         pass
+

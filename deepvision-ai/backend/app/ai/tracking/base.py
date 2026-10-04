@@ -24,3 +24,4 @@ class BaseFaceTracker(ABC):
     def reset(self) -> None:
         """Resets tracker state between different video streams or sessions."""
         pass
+
