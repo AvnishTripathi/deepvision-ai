@@ -1,27 +1,29 @@
 """
 DeepVision AI — Detection Schemas
-Standardized schemas for face bounding boxes, facial landmarks, detection results,
-frame inference, and quality assessments.
+Standardized schemas for face bounding boxes, facial landmarks, face detections,
+and API detection responses.
 """
-
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, Field, computed_field
 
 from app.schemas.ai import (
     BoundingBox,
+    NormalizedBoundingBox,
     LandmarkPoint,
     FaceQualityScore,
+    FaceDetection,
     FaceDetectionResult,
+    DetectionResponse,
     FrameInferenceResult,
     PerformanceMetrics,
 )
 
 __all__ = [
     "BoundingBox",
+    "NormalizedBoundingBox",
     "LandmarkPoint",
     "FaceQualityScore",
+    "FaceDetection",
     "FaceDetectionResult",
+    "DetectionResponse",
     "FrameInferenceResult",
     "PerformanceMetrics",
 ]
-

@@ -7,9 +7,12 @@ from app.ai.detection.base import BaseFaceDetector
 from app.ai.detection.detector import FaceDetector
 from app.ai.detection.schemas import (
     BoundingBox,
+    NormalizedBoundingBox,
     LandmarkPoint,
     FaceQualityScore,
+    FaceDetection,
     FaceDetectionResult,
+    DetectionResponse,
     FrameInferenceResult,
     PerformanceMetrics,
 )
@@ -24,9 +27,12 @@ __all__ = [
     "BaseFaceDetector",
     "FaceDetector",
     "BoundingBox",
+    "NormalizedBoundingBox",
     "LandmarkPoint",
     "FaceQualityScore",
+    "FaceDetection",
     "FaceDetectionResult",
+    "DetectionResponse",
     "FrameInferenceResult",
     "PerformanceMetrics",
     "load_image",
@@ -34,4 +40,3 @@ __all__ = [
     "unletterbox_coordinates",
     "prepare_input_tensor",
 ]
-

@@ -14,9 +14,12 @@ from PIL import Image
 from app.ai.common.types import ImageSource
 from app.ai.detection.schemas import (
     BoundingBox,
+    NormalizedBoundingBox,
     LandmarkPoint,
+    FaceDetection,
     FaceDetectionResult,
     FrameInferenceResult,
+    DetectionResponse,
     FaceQualityScore,
 )
 from app.ai.detection.base import BaseFaceDetector
@@ -155,12 +158,13 @@ class FaceDetector(BaseFaceDetector):
             frame_id=None,
             image_width=orig_w,
             image_height=orig_h,
-            face_count=len(faces),
-            faces=faces,
+            detections=faces,
             preprocessing_time_ms=prep_time_ms,
             inference_time_ms=inf_time_ms,
             postprocessing_time_ms=post_time_ms,
             total_time_ms=total_time_ms,
+            processing_time_ms=total_time_ms,
+            device=self.device,
             device_used=self.device,
             model_name=model_name,
             runtime_provider=runtime_provider,
@@ -171,13 +175,13 @@ class FaceDetector(BaseFaceDetector):
         image_rgb: np.ndarray,
         orig_shape: Tuple[int, int],
         confidence_threshold: float,
-    ) -> List[FaceDetectionResult]:
+    ) -> List[FaceDetection]:
         """
         Baseline face detection evaluation for testing inference abstraction & quality metrics.
         Computes realistic face ROI, extracts landmarks, and runs quality analysis on actual image pixels.
         """
         orig_h, orig_w = orig_shape
-        faces: List[FaceDetectionResult] = []
+        faces: List[FaceDetection] = []
 
         # Center face candidate coordinates
         x_min = round(orig_w * 0.25, 2)
@@ -188,12 +192,12 @@ class FaceDetector(BaseFaceDetector):
 
         if confidence >= confidence_threshold:
             bbox = BoundingBox(
-                x_min=x_min,
-                y_min=y_min,
-                x_max=x_max,
-                y_max=y_max,
-                confidence=confidence,
+                x1=x_min,
+                y1=y_min,
+                x2=x_max,
+                y2=y_max,
             )
+            normalized_bbox = bbox.to_normalized(orig_w, orig_h)
 
             # Crop real face region from image for quality assessment
             crop_x1 = max(0, int(x_min))
@@ -217,10 +221,12 @@ class FaceDetector(BaseFaceDetector):
             ]
 
             faces.append(
-                FaceDetectionResult(
-                    face_index=0,
+                FaceDetection(
+                    face_id=None,
                     bbox=bbox,
+                    confidence=confidence,
                     landmarks=landmarks,
+                    normalized_bbox=normalized_bbox,
                     quality=quality,
                     track_id=None,
                     metadata={"detector": "baseline", "resolution": f"{orig_w}x{orig_h}"},

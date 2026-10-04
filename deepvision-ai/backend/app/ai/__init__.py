@@ -14,9 +14,12 @@ from app.ai.detection.preprocessing import (
 )
 from app.ai.detection.schemas import (
     BoundingBox,
+    NormalizedBoundingBox,
     LandmarkPoint,
     FaceQualityScore,
+    FaceDetection,
     FaceDetectionResult,
+    DetectionResponse,
     FrameInferenceResult,
     PerformanceMetrics,
 )
@@ -51,9 +54,12 @@ __all__ = [
     "prepare_input_tensor",
     # Schemas
     "BoundingBox",
+    "NormalizedBoundingBox",
     "LandmarkPoint",
     "FaceQualityScore",
+    "FaceDetection",
     "FaceDetectionResult",
+    "DetectionResponse",
     "FrameInferenceResult",
     "PerformanceMetrics",
     # Inference & Hardware Abstraction

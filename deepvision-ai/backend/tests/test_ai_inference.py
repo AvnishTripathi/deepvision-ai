@@ -22,9 +22,12 @@ from app.ai.analysis.quality import (
 )
 from app.schemas.ai import (
     BoundingBox,
+    NormalizedBoundingBox,
     LandmarkPoint,
     FaceQualityScore,
+    FaceDetection,
     FaceDetectionResult,
+    DetectionResponse,
     FrameInferenceResult,
     PerformanceMetrics,
 )
@@ -145,11 +148,86 @@ def test_face_quality_analytics(sample_synthetic_image):
 
 
 def test_bounding_box_schema():
-    """Verify BoundingBox schema and computed fields (width, height, area)."""
-    bbox = BoundingBox(x_min=100.0, y_min=50.0, x_max=250.0, y_max=200.0, confidence=0.98)
+    """Verify BoundingBox schema (x1, y1, x2, y2), computed metrics, and normalization."""
+    # Test primary x1, y1, x2, y2 coordinates
+    bbox = BoundingBox(x1=100.0, y1=80.0, x2=250.0, y2=260.0)
+    assert bbox.x1 == 100.0
+    assert bbox.y1 == 80.0
+    assert bbox.x2 == 250.0
+    assert bbox.y2 == 260.0
     assert bbox.width == 150.0
-    assert bbox.height == 150.0
-    assert bbox.area == 22500.0
+    assert bbox.height == 180.0
+    assert bbox.area == 27000.0
+
+    # Test normalization
+    norm = bbox.to_normalized(image_width=1000, image_height=1000)
+    assert norm.x1 == 0.1
+    assert norm.y1 == 0.08
+    assert norm.x2 == 0.25
+    assert norm.y2 == 0.26
+    assert norm.width == 0.15
+    assert norm.height == 0.18
+
+    # Convert back to pixel
+    restored = norm.to_pixel(image_width=1000, image_height=1000)
+    assert restored.x1 == 100.0
+    assert restored.y1 == 80.0
+    assert restored.x2 == 250.0
+    assert restored.y2 == 260.0
+
+
+def test_face_detection_schema_and_json_serialization():
+    """Verify FaceDetection schema fields, defaults, and JSON serialization."""
+    detection = FaceDetection(
+        face_id=None,
+        bbox=BoundingBox(x1=100.0, y1=80.0, x2=250.0, y2=260.0),
+        confidence=0.97,
+        landmarks=None,
+    )
+    assert detection.face_id is None
+    assert detection.bbox.x1 == 100.0
+    assert detection.bbox.y1 == 80.0
+    assert detection.bbox.x2 == 250.0
+    assert detection.bbox.y2 == 260.0
+    assert detection.confidence == 0.97
+    assert detection.landmarks is None
+
+    # Verify JSON structure conforms to specification
+    dump = detection.model_dump(mode="json")
+    assert dump["face_id"] is None
+    assert dump["bbox"]["x1"] == 100.0
+    assert dump["bbox"]["y1"] == 80.0
+    assert dump["bbox"]["x2"] == 250.0
+    assert dump["bbox"]["y2"] == 260.0
+    assert dump["confidence"] == 0.97
+    assert dump["landmarks"] is None
+
+
+def test_detection_response_schema():
+    """Verify DetectionResponse top-level response schema and fields."""
+    response = DetectionResponse(
+        image_width=640,
+        image_height=480,
+        processing_time_ms=12.5,
+        device="cpu",
+        model_name="scrfd-500m",
+        detections=[
+            FaceDetection(
+                face_id=0,
+                bbox=BoundingBox(x1=100.0, y1=80.0, x2=250.0, y2=260.0),
+                confidence=0.97,
+                landmarks=None,
+            )
+        ],
+    )
+    assert response.image_width == 640
+    assert response.image_height == 480
+    assert response.processing_time_ms == 12.5
+    assert response.device == "cpu"
+    assert response.model_name == "scrfd-500m"
+    assert len(response.detections) == 1
+    assert response.face_count == 1
+    assert response.detections[0].confidence == 0.97
 
 
 def test_face_detector_end_to_end_pipeline(sample_synthetic_image):
@@ -164,8 +242,11 @@ def test_face_detector_end_to_end_pipeline(sample_synthetic_image):
 
     # Verify detected face structure
     face = result.faces[0]
-    assert face.face_index == 0
-    assert face.bbox.confidence >= 0.5
+    assert face.face_id is None
+    assert face.confidence >= 0.5
+    assert face.bbox.x1 > 0
+    assert face.bbox.y1 > 0
+    assert face.landmarks is not None
     assert len(face.landmarks) == 5
     assert face.quality is not None
     assert 0.0 <= face.quality.overall_quality <= 1.0
