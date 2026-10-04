@@ -340,3 +340,53 @@ def prepare_input_tensor(
     config = ImagePreprocessingConfig(target_size=target_size, normalize=normalize)
     preprocessor = ImagePreprocessor(config)
     return preprocessor.prepare_tensor(image, target_size=target_size)
+
+
+def validate_and_clip_box(
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    image_width: int,
+    image_height: int,
+    min_size: float = 1.0,
+) -> Optional[Tuple[float, float, float, float]]:
+    """
+    Validates and clips bounding box coordinates to image boundaries.
+    
+    Guarantees:
+      - x1 >= 0
+      - y1 >= 0
+      - x2 <= image_width
+      - y2 <= image_height
+      - x2 > x1
+      - y2 > y1
+      
+    Discards invalid or degenerate detections safely by returning None.
+    """
+    if image_width <= 0 or image_height <= 0:
+        return None
+
+    # 1. Clip coordinates to canvas boundaries
+    cx1 = max(0.0, min(float(image_width), float(x1)))
+    cy1 = max(0.0, min(float(image_height), float(y1)))
+    cx2 = max(0.0, min(float(image_width), float(x2)))
+    cy2 = max(0.0, min(float(image_height), float(y2)))
+
+    # 2. Enforce strict geometric validity
+    if cx1 < 0.0 or cy1 < 0.0:
+        return None
+    if cx2 > float(image_width) or cy2 > float(image_height):
+        return None
+    if cx2 <= cx1 or cy2 <= cy1:
+        return None
+    if (cx2 - cx1) < min_size or (cy2 - cy1) < min_size:
+        return None
+
+    return (
+        round(cx1, 2),
+        round(cy1, 2),
+        round(cx2, 2),
+        round(cy2, 2),
+    )
+

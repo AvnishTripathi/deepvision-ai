@@ -414,3 +414,58 @@ def test_multi_format_and_color_spaces_handled_correctly(real_detector, sample_p
     assert res_webp.face_count >= 1
 
 
+# -------------------------------------------------------------------------
+# Test 11: Bounding Box Validation, Clipping & Safe Rejection
+# -------------------------------------------------------------------------
+
+def test_bounding_box_validation_clipping_and_rejection():
+    """
+    Verify bounding box validator and clipper enforces:
+    - x1 >= 0
+    - y1 >= 0
+    - x2 <= image_width
+    - y2 <= image_height
+    - x2 > x1
+    - y2 > y1
+    - Clips slightly out-of-boundary proposals to image edges
+    - Discards invalid or degenerate detections safely
+    """
+    from app.ai.detection.preprocessing import validate_and_clip_box
+
+    image_w, image_h = 640, 480
+
+    # 1. Normal valid proposal
+    valid = validate_and_clip_box(100.0, 100.0, 300.0, 300.0, image_w, image_h)
+    assert valid == (100.0, 100.0, 300.0, 300.0)
+
+    # 2. Proposal extending slightly beyond boundaries is clipped
+    clipped = validate_and_clip_box(-15.5, -10.2, 650.0, 490.5, image_w, image_h)
+    assert clipped == (0.0, 0.0, 640.0, 480.0)
+    assert clipped[0] >= 0.0
+    assert clipped[1] >= 0.0
+    assert clipped[2] <= float(image_w)
+    assert clipped[3] <= float(image_h)
+    assert clipped[2] > clipped[0]
+    assert clipped[3] > clipped[1]
+
+    # 3. Inverted coordinates (x2 <= x1 or y2 <= y1) safely discarded
+    assert validate_and_clip_box(300.0, 100.0, 200.0, 300.0, image_w, image_h) is None
+    assert validate_and_clip_box(100.0, 300.0, 300.0, 200.0, image_w, image_h) is None
+    assert validate_and_clip_box(100.0, 100.0, 100.0, 300.0, image_w, image_h) is None
+
+    # 4. Completely out-of-bounds proposals safely discarded
+    assert validate_and_clip_box(-100.0, -100.0, -10.0, -10.0, image_w, image_h) is None
+    assert validate_and_clip_box(700.0, 500.0, 800.0, 600.0, image_w, image_h) is None
+
+    # 5. Schema clip_to_bounds and is_valid
+    from app.schemas.ai import BoundingBox
+    box = BoundingBox(x1=-10.0, y1=-10.0, x2=200.0, y2=200.0)
+    assert not box.is_valid(image_w, image_h)
+    clipped_box = box.clip_to_bounds(image_w, image_h)
+    assert clipped_box is not None
+    assert clipped_box.x1 == 0.0
+    assert clipped_box.y1 == 0.0
+    assert clipped_box.is_valid(image_w, image_h)
+
+
+

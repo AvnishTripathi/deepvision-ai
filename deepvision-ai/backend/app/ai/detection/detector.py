@@ -24,6 +24,7 @@ from app.ai.detection.preprocessing import (
     ImagePreprocessor,
     ImagePreprocessingConfig,
     PreprocessedImage,
+    validate_and_clip_box,
 )
 from app.ai.detection.adapter import BaseModelAdapter, SCRFDAdapter
 from app.ai.analysis.quality import analyze_face_quality
@@ -199,28 +200,55 @@ class FaceDetector(BaseFaceDetector):
                         continue
 
                     fx, fy, fw, fh = face[0:4]
-                    x1 = max(0.0, float(fx))
-                    y1 = max(0.0, float(fy))
-                    x2 = min(float(orig_w), float(fx + fw))
-                    y2 = min(float(orig_h), float(fy + fh))
-                    if x2 <= x1 or y2 <= y1:
+                    clipped = validate_and_clip_box(
+                        x1=float(fx),
+                        y1=float(fy),
+                        x2=float(fx + fw),
+                        y2=float(fy + fh),
+                        image_width=orig_w,
+                        image_height=orig_h,
+                    )
+                    if clipped is None:
+                        # Invalid or degenerate detection safely discarded
                         continue
 
+                    x1, y1, x2, y2 = clipped
+
                     bbox = BoundingBox(
-                        x1=round(x1, 2),
-                        y1=round(y1, 2),
-                        x2=round(x2, 2),
-                        y2=round(y2, 2),
+                        x1=x1,
+                        y1=y1,
+                        x2=x2,
+                        y2=y2,
                     )
                     norm_bbox = bbox.to_normalized(orig_w, orig_h)
 
-                    # 5 standard facial landmarks (order: right_eye, left_eye, nose_tip, mouth_right, mouth_left)
+                    # 5 standard facial landmarks clamped to image canvas bounds
                     landmarks = [
-                        LandmarkPoint(name="right_eye", x=round(float(face[4]), 2), y=round(float(face[5]), 2)),
-                        LandmarkPoint(name="left_eye", x=round(float(face[6]), 2), y=round(float(face[7]), 2)),
-                        LandmarkPoint(name="nose_tip", x=round(float(face[8]), 2), y=round(float(face[9]), 2)),
-                        LandmarkPoint(name="mouth_right", x=round(float(face[10]), 2), y=round(float(face[11]), 2)),
-                        LandmarkPoint(name="mouth_left", x=round(float(face[12]), 2), y=round(float(face[13]), 2)),
+                        LandmarkPoint(
+                            name="right_eye",
+                            x=round(max(0.0, min(float(orig_w), float(face[4]))), 2),
+                            y=round(max(0.0, min(float(orig_h), float(face[5]))), 2),
+                        ),
+                        LandmarkPoint(
+                            name="left_eye",
+                            x=round(max(0.0, min(float(orig_w), float(face[6]))), 2),
+                            y=round(max(0.0, min(float(orig_h), float(face[7]))), 2),
+                        ),
+                        LandmarkPoint(
+                            name="nose_tip",
+                            x=round(max(0.0, min(float(orig_w), float(face[8]))), 2),
+                            y=round(max(0.0, min(float(orig_h), float(face[9]))), 2),
+                        ),
+                        LandmarkPoint(
+                            name="mouth_right",
+                            x=round(max(0.0, min(float(orig_w), float(face[10]))), 2),
+                            y=round(max(0.0, min(float(orig_h), float(face[11]))), 2),
+                        ),
+                        LandmarkPoint(
+                            name="mouth_left",
+                            x=round(max(0.0, min(float(orig_w), float(face[12]))), 2),
+                            y=round(max(0.0, min(float(orig_h), float(face[13]))), 2),
+                        ),
                     ]
 
                     crop_x1 = max(0, min(orig_w, int(x1)))

@@ -15,7 +15,7 @@ from app.ai.detection.schemas import (
     LandmarkPoint,
     FaceDetection,
 )
-from app.ai.detection.preprocessing import unletterbox_coordinates
+from app.ai.detection.preprocessing import unletterbox_coordinates, validate_and_clip_box
 
 
 class BaseModelAdapter(ABC):
@@ -159,11 +159,23 @@ class SCRFDAdapter(BaseModelAdapter):
         detections: List[FaceDetection] = []
         for rank, i in enumerate(keep_indices):
             raw_box = boxes_arr[i]
-            x1, y1, x2, y2 = unletterbox_coordinates(
+            rx1, ry1, rx2, ry2 = unletterbox_coordinates(
                 float(raw_box[0]), float(raw_box[1]),
                 float(raw_box[2]), float(raw_box[3]),
                 scale, padding, orig_shape
             )
+            clipped = validate_and_clip_box(
+                x1=rx1,
+                y1=ry1,
+                x2=rx2,
+                y2=ry2,
+                image_width=orig_w,
+                image_height=orig_h,
+            )
+            if clipped is None:
+                continue
+
+            x1, y1, x2, y2 = clipped
             bbox = BoundingBox(x1=x1, y1=y1, x2=x2, y2=y2)
             norm_bbox = bbox.to_normalized(orig_w, orig_h)
 

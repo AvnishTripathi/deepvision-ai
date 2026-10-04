@@ -93,6 +93,34 @@ class BoundingBox(BaseModel):
     def y_max(self) -> float:
         return self.y2
 
+    def is_valid(self, image_width: Optional[int] = None, image_height: Optional[int] = None) -> bool:
+        """
+        Validates bounding box geometric integrity:
+        x1 >= 0, y1 >= 0, x2 > x1, y2 > y1, and within canvas bounds if supplied.
+        """
+        if self.x1 < 0.0 or self.y1 < 0.0:
+            return False
+        if self.x2 <= self.x1 or self.y2 <= self.y1:
+            return False
+        if image_width is not None and self.x2 > float(image_width):
+            return False
+        if image_height is not None and self.y2 > float(image_height):
+            return False
+        return True
+
+    def clip_to_bounds(self, image_width: int, image_height: int) -> Optional["BoundingBox"]:
+        """
+        Clips bounding box coordinates to [0, width] and [0, height].
+        Returns None if clipped box is degenerate (x2 <= x1 or y2 <= y1).
+        """
+        cx1 = max(0.0, min(float(image_width), self.x1))
+        cy1 = max(0.0, min(float(image_height), self.y1))
+        cx2 = max(0.0, min(float(image_width), self.x2))
+        cy2 = max(0.0, min(float(image_height), self.y2))
+        if cx2 <= cx1 or cy2 <= cy1:
+            return None
+        return BoundingBox(x1=round(cx1, 2), y1=round(cy1, 2), x2=round(cx2, 2), y2=round(cy2, 2))
+
     def to_normalized(self, image_width: int, image_height: int) -> NormalizedBoundingBox:
         """Converts pixel coordinates to normalized [0.0, 1.0] coordinates."""
         if image_width <= 0 or image_height <= 0:
@@ -238,6 +266,28 @@ class FaceBoundingBox(BaseModel):
     y2: float = Field(..., description="Bottom pixel coordinate")
 
     model_config = ConfigDict(populate_by_name=True)
+
+    def is_valid(self, image_width: Optional[int] = None, image_height: Optional[int] = None) -> bool:
+        """Validates bounding box geometric bounds."""
+        if self.x1 < 0.0 or self.y1 < 0.0:
+            return False
+        if self.x2 <= self.x1 or self.y2 <= self.y1:
+            return False
+        if image_width is not None and self.x2 > float(image_width):
+            return False
+        if image_height is not None and self.y2 > float(image_height):
+            return False
+        return True
+
+    def clip_to_bounds(self, image_width: int, image_height: int) -> Optional["FaceBoundingBox"]:
+        """Clips coordinates to image canvas boundaries [0, width] and [0, height]."""
+        cx1 = max(0.0, min(float(image_width), self.x1))
+        cy1 = max(0.0, min(float(image_height), self.y1))
+        cx2 = max(0.0, min(float(image_width), self.x2))
+        cy2 = max(0.0, min(float(image_height), self.y2))
+        if cx2 <= cx1 or cy2 <= cy1:
+            return None
+        return FaceBoundingBox(x1=round(cx1, 2), y1=round(cy1, 2), x2=round(cx2, 2), y2=round(cy2, 2))
 
 
 class DetectedFaceItem(BaseModel):
