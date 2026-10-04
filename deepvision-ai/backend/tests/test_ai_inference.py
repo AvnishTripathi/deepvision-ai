@@ -296,3 +296,43 @@ def test_ai_engine_package_imports():
     assert hasattr(common, "DeviceType")
 
 
+def test_base_face_detector_interface_enforces_abstract_methods():
+    """Verify BaseFaceDetector cannot be instantiated directly without implementations."""
+    from app.ai.detection.base import BaseFaceDetector
+
+    with pytest.raises(TypeError):
+        BaseFaceDetector()  # type: ignore
+
+
+def test_face_detector_lifecycle(sample_synthetic_image):
+    """Verify FaceDetector lifecycle: load_model, detect, unload, is_loaded, context manager."""
+    from app.ai.detection.detector import FaceDetector
+    from app.ai.detection.schemas import FrameInferenceResult
+
+    detector = FaceDetector(device="cpu")
+    assert detector.device == "cpu"
+    assert not detector.is_loaded
+
+    # 1. detect returns structured FrameInferenceResult
+    res: FrameInferenceResult = detector.detect(sample_synthetic_image, confidence_threshold=0.5)
+    assert isinstance(res, FrameInferenceResult)
+    assert res.face_count >= 1
+    assert len(res.faces) == res.face_count
+
+    # 2. load_model
+    detector.load_model(model_path=None, device="cpu")
+    assert detector.device == "cpu"
+
+    # 3. unload clears state
+    detector.unload()
+    assert not detector.is_loaded
+    assert detector.model_path is None
+
+    # 4. Context manager usage
+    with FaceDetector(device="cpu") as managed_detector:
+        managed_res = managed_detector.detect(sample_synthetic_image)
+        assert isinstance(managed_res, FrameInferenceResult)
+    # Exiting context manager triggers unload
+    assert not managed_detector.is_loaded
+
+

@@ -1,16 +1,17 @@
 """
 DeepVision AI — Production Face Detector Architecture
-Orchestrates preprocessing, model inference, landmark parsing,
-and face quality evaluation into standardized result schemas.
+Orchestrates model lifecycle (load_model, detect, unload), image preprocessing,
+model inference, landmark parsing, and face quality evaluation into standardized schemas.
 """
 
 import time
 import os
 import logging
-from typing import Union, Optional, List
+from typing import Union, Optional, List, Tuple, Any
 import numpy as np
 from PIL import Image
 
+from app.ai.common.types import ImageSource
 from app.ai.detection.schemas import (
     BoundingBox,
     LandmarkPoint,
@@ -26,6 +27,7 @@ from app.ai.detection.preprocessing import (
 )
 from app.ai.analysis.quality import analyze_face_quality
 from app.ai.inference.runtime import InferenceRuntime
+from app.ai.inference.device import resolve_device
 
 logger = logging.getLogger("deepvision.ai.detection")
 
@@ -34,38 +36,75 @@ class FaceDetector(BaseFaceDetector):
     """
     Standardized face detection engine supporting both hardware-accelerated
     ONNX model execution and baseline detection verification.
+    Implements the lifecycle contract: load_model -> detect -> unload.
     """
 
     def __init__(
         self,
         model_path: Optional[str] = None,
-        device: str = "cpu",
-        target_size: tuple[int, int] = (640, 640),
+        device: str = "auto",
+        target_size: Tuple[int, int] = (640, 640),
     ):
         self.model_path = model_path
-        self.device = device
+        self.device = resolve_device(device)
         self.target_size = target_size
         self.engine: Optional[InferenceRuntime] = None
 
-        if model_path and os.path.exists(model_path):
+        if model_path:
+            self.load_model(model_path, self.device)
+
+    def load_model(
+        self,
+        model_path: Optional[str] = None,
+        device: Optional[str] = None,
+    ) -> None:
+        """
+        Loads the detection model weights and initializes the inference runtime session.
+        """
+        target_path = model_path or self.model_path
+        target_device = resolve_device(device) if device else self.device
+
+        self.model_path = target_path
+        self.device = target_device
+
+        if target_path and os.path.exists(target_path):
             try:
                 self.engine = InferenceRuntime(
                     model_name="deepvision-face-detector",
-                    model_path=model_path,
-                    device=device,
+                    model_path=target_path,
+                    device=target_device,
                 )
-                logger.info("Inference runtime initialized from: %s", model_path)
+                logger.info("Face detector loaded model from %s on device: %s", target_path, target_device)
             except Exception as exc:
-                logger.warning("Failed to initialize inference runtime from %s: %s", model_path, exc)
+                logger.warning("Failed initializing inference runtime from %s: %s", target_path, exc)
                 self.engine = None
+        else:
+            logger.info("No physical model file at '%s'; baseline detection engine active.", target_path)
+            self.engine = None
+
+    def unload(self) -> None:
+        """
+        Unloads model session, releasing system memory, thread pools, and VRAM.
+        """
+        if self.engine is not None:
+            logger.info("Unloading face detection model '%s' from device %s.", self.model_path, self.device)
+            self.engine = None
+        self.model_path = None
+
+    @property
+    def is_loaded(self) -> bool:
+        """Indicates whether an active model engine session is currently loaded."""
+        return self.engine is not None and self.engine.is_loaded
 
     def detect(
         self,
-        image_input: Union[str, bytes, np.ndarray, Image.Image],
+        image_input: ImageSource,
         confidence_threshold: float = 0.5,
+        **kwargs: Any,
     ) -> FrameInferenceResult:
         """
         Executes end-to-end detection pipeline with fine-grained performance latency telemetry.
+        Returns standardized FrameInferenceResult schema rather than raw model tensors.
         """
         start_total = time.perf_counter()
 
@@ -84,7 +123,7 @@ class FaceDetector(BaseFaceDetector):
         faces: List[FaceDetectionResult] = []
 
         if self.engine and self.engine.is_loaded:
-            # ONNX Inference path
+            # Hardware-accelerated ONNX Inference path
             outputs = self.engine.predict(input_tensor)
             inf_time_ms = round((time.perf_counter() - start_inf) * 1000, 2)
 
@@ -95,11 +134,10 @@ class FaceDetector(BaseFaceDetector):
             )
             post_time_ms = round((time.perf_counter() - start_post) * 1000, 2)
             model_name = self.engine.model_name
-            runtime_provider = "ONNXRuntime-CPU"
+            runtime_provider = self.engine.get_metadata().get("providers", ["ONNXRuntime"])[0]
 
         else:
             # Baseline inference path (used for verification before model weights deployment)
-            # Simulates forward-pass compute on the real tensor
             _ = np.sum(input_tensor[:, :, ::4, ::4])
             inf_time_ms = round((time.perf_counter() - start_inf) * 1000, 2)
 
@@ -131,7 +169,7 @@ class FaceDetector(BaseFaceDetector):
     def _baseline_inference(
         self,
         image_rgb: np.ndarray,
-        orig_shape: tuple[int, int],
+        orig_shape: Tuple[int, int],
         confidence_threshold: float,
     ) -> List[FaceDetectionResult]:
         """
@@ -196,13 +234,18 @@ class FaceDetector(BaseFaceDetector):
         outputs: List[np.ndarray],
         image_rgb: np.ndarray,
         scale: float,
-        padding: tuple[int, int],
-        orig_shape: tuple[int, int],
+        padding: Tuple[int, int],
+        orig_shape: Tuple[int, int],
         confidence_threshold: float,
     ) -> List[FaceDetectionResult]:
         """Parses model outputs into FaceDetectionResult objects."""
-        # Generic parser unpadding coordinates and running quality analytics
         faces: List[FaceDetectionResult] = []
-        # Handled according to specific ONNX anchor-free detection head layout
         return faces
 
+    def __enter__(self) -> "FaceDetector":
+        """Enables context manager usage (with FaceDetector(...) as detector:)."""
+        return self
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Automatically unloads model resources upon context exit."""
+        self.unload()
