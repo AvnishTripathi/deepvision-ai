@@ -7,6 +7,7 @@ model inference, landmark parsing, and face quality evaluation into standardized
 import time
 import os
 import logging
+import threading
 from typing import Optional, List, Tuple, Any
 import numpy as np
 import cv2
@@ -72,6 +73,9 @@ class FaceDetector(BaseFaceDetector):
         self.adapter = adapter or SCRFDAdapter()
         self.engine: Optional[InferenceRuntime] = None
         self._cv2_detector: Optional[Any] = None
+        self._load_count: int = 0
+        self._inference_count: int = 0
+        self._inference_lock = threading.Lock()
 
         if model_path:
             self.load_model(model_path, self.device)
@@ -109,6 +113,7 @@ class FaceDetector(BaseFaceDetector):
                     nms_threshold=float(self.nms_threshold),
                     top_k=5000,
                 )
+                self._load_count += 1
                 logger.info("Face detector loaded YuNet model via OpenCV FaceDetectorYN from %s", target_path)
                 return
             except Exception as exc:
@@ -122,6 +127,7 @@ class FaceDetector(BaseFaceDetector):
                 model_path=target_path,
                 device=target_device,
             )
+            self._load_count += 1
             logger.info("Face detector loaded model from %s on device: %s via ONNX Runtime", target_path, target_device)
         except Exception as exc:
             logger.warning("Failed initializing inference runtime from %s: %s", target_path, exc)
@@ -144,6 +150,16 @@ class FaceDetector(BaseFaceDetector):
         if self._cv2_detector is not None:
             return True
         return self.engine is not None and self.engine.is_loaded
+
+    @property
+    def load_count(self) -> int:
+        """Total number of times model weights were loaded from disk/runtime."""
+        return self._load_count
+
+    @property
+    def inference_count(self) -> int:
+        """Total number of inference runs executed on this detector instance."""
+        return self._inference_count
 
     def detect(
         self,
@@ -177,19 +193,18 @@ class FaceDetector(BaseFaceDetector):
 
         faces: List[FaceDetectionResult] = []
 
-        # 2. Forward-Pass Model Inference
+        # 2. Forward-Pass Model Inference (Thread-safe concurrency synchronization)
         if self._cv2_detector is not None:
             # OpenCV native C++ DNN inference path for YuNet
-            start_inf = time.perf_counter()
-            self._cv2_detector.setInputSize((orig_w, orig_h))
-            self._cv2_detector.setScoreThreshold(threshold)
-            if hasattr(self._cv2_detector, "setNMSThreshold"):
-                self._cv2_detector.setNMSThreshold(effective_nms)
-
-            # Note: OpenCV FaceDetectorYN performs C++ SIMD NMS internally using effective_nms.
-            # We do NOT run a second redundant pass of NMS in Python.
             img_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
-            _, raw_faces = self._cv2_detector.detect(img_bgr)
+            start_inf = time.perf_counter()
+            with self._inference_lock:
+                self._inference_count += 1
+                self._cv2_detector.setInputSize((orig_w, orig_h))
+                self._cv2_detector.setScoreThreshold(threshold)
+                if hasattr(self._cv2_detector, "setNMSThreshold"):
+                    self._cv2_detector.setNMSThreshold(effective_nms)
+                _, raw_faces = self._cv2_detector.detect(img_bgr)
             inf_time_ms = round((time.perf_counter() - start_inf) * 1000, 2)
 
             start_post = time.perf_counter()
@@ -278,7 +293,9 @@ class FaceDetector(BaseFaceDetector):
             # Hardware-accelerated ONNX Inference path
             prep_res: PreprocessedImage = self.preprocessor.process(image_rgb)
             start_inf = time.perf_counter()
-            outputs = self.engine.predict(prep_res.tensor)
+            with self._inference_lock:
+                self._inference_count += 1
+                outputs = self.engine.predict(prep_res.tensor)
             inf_time_ms = round((time.perf_counter() - start_inf) * 1000, 2)
 
             start_post = time.perf_counter()
@@ -292,12 +309,14 @@ class FaceDetector(BaseFaceDetector):
         else:
             # Baseline inference path (used for verification before model weights deployment)
             start_inf = time.perf_counter()
+            with self._inference_lock:
+                self._inference_count += 1
+                faces = self._baseline_inference(
+                    image_rgb, (orig_h, orig_w), threshold
+                )
             inf_time_ms = round((time.perf_counter() - start_inf) * 1000, 2)
 
             start_post = time.perf_counter()
-            faces = self._baseline_inference(
-                image_rgb, (orig_h, orig_w), threshold
-            )
             post_time_ms = round((time.perf_counter() - start_post) * 1000, 2)
             model_name = "deepvision-baseline-detector"
             runtime_provider = "Native-CV-Engine"

@@ -13,14 +13,27 @@ from app.core.logging import setup_logging
 from app.core.database import init_db
 from app.core.error_handlers import register_exception_handlers
 from app.api.v1 import api_router
+from app.services.ai_service import init_ai_service, shutdown_ai_service
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize application logging & database connection
+    # 1. Initialize application logging & database connection
     setup_logging()
     init_db()
+
+    # 2. Application startup: Pre-load AI model once and keep detector available
+    ai_service = init_ai_service()
+    if ai_service.is_operational:
+        app.state.ai_ready = True
+    else:
+        app.state.ai_ready = False
+
     yield
+
+    # 3. Application shutdown: Cleanly unload AI model and release hardware resources
+    shutdown_ai_service()
+
 
 
 app = FastAPI(

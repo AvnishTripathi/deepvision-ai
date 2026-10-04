@@ -5,6 +5,7 @@ Maintains strict architectural separation: API -> AI Service -> Detector Interfa
 """
 
 import logging
+import threading
 from typing import Optional, Dict, Any
 
 from app.core.config import settings, Settings
@@ -114,6 +115,8 @@ class AIService:
             "configured_device": self.config.AI_DEVICE,
             "gpu_enabled": self.config.AI_ENABLE_GPU,
             "is_model_loaded": self._detector.is_loaded,
+            "load_count": getattr(self._detector, "load_count", 0),
+            "inference_count": getattr(self._detector, "inference_count", 0),
             "telemetry": telemetry,
         }
 
@@ -123,14 +126,50 @@ class AIService:
         self._detector.unload()
 
 
-# Module-level singleton instance
+# Module-level thread-safe singleton instance and mutex
 _ai_service_instance: Optional[AIService] = None
+_ai_service_lock = threading.Lock()
+
+
+def init_ai_service() -> AIService:
+    """
+    Initializes and warms up the AIService singleton once during application startup.
+    Ensures model weights are loaded once into memory and reused across all requests.
+    Thread-safe.
+    """
+    global _ai_service_instance
+    with _ai_service_lock:
+        if _ai_service_instance is None:
+            model_path = settings.resolve_model_path()
+            _ai_service_instance = AIService(model_path=model_path)
+            logger.info(
+                "AIService singleton initialized at application startup [model=%s, is_operational=%s, load_count=%s]",
+                settings.AI_MODEL_NAME,
+                _ai_service_instance.is_operational,
+                getattr(_ai_service_instance.detector, "load_count", 1),
+            )
+    return _ai_service_instance
 
 
 def get_ai_service() -> AIService:
-    """Dependency provider / accessor for the AIService singleton."""
-    global _ai_service_instance
+    """
+    Dependency provider / accessor for the AIService singleton.
+    Implements double-checked locking: reuses the existing loaded detector without reloading.
+    """
     if _ai_service_instance is None:
-        model_path = settings.resolve_model_path()
-        _ai_service_instance = AIService(model_path=model_path)
+        return init_ai_service()
     return _ai_service_instance
+
+
+def shutdown_ai_service() -> None:
+    """
+    Gracefully shuts down and unloads the AIService singleton during application shutdown.
+    Thread-safe.
+    """
+    global _ai_service_instance
+    with _ai_service_lock:
+        if _ai_service_instance is not None:
+            _ai_service_instance.shutdown()
+            _ai_service_instance = None
+            logger.info("AIService singleton successfully shut down.")
+
