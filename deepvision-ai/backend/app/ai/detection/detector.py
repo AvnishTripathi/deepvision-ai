@@ -164,12 +164,17 @@ class FaceDetector(BaseFaceDetector):
             start_post = time.perf_counter()
             if raw_faces is not None:
                 for idx, face in enumerate(raw_faces):
+                    conf = float(face[-1])
+                    if conf < float(confidence_threshold):
+                        continue
+
                     fx, fy, fw, fh = face[0:4]
                     x1 = max(0.0, float(fx))
                     y1 = max(0.0, float(fy))
                     x2 = min(float(orig_w), float(fx + fw))
                     y2 = min(float(orig_h), float(fy + fh))
-                    conf = float(face[-1])
+                    if x2 <= x1 or y2 <= y1:
+                        continue
 
                     bbox = BoundingBox(
                         x1=round(x1, 2),
@@ -188,8 +193,15 @@ class FaceDetector(BaseFaceDetector):
                         LandmarkPoint(name="mouth_left", x=round(float(face[12]), 2), y=round(float(face[13]), 2)),
                     ]
 
-                    crop = image_rgb[int(y1):int(y2), int(x1):int(x2)]
-                    quality = analyze_face_quality(crop)
+                    crop_x1 = max(0, min(orig_w, int(x1)))
+                    crop_y1 = max(0, min(orig_h, int(y1)))
+                    crop_x2 = max(0, min(orig_w, int(x2)))
+                    crop_y2 = max(0, min(orig_h, int(y2)))
+                    quality = (
+                        analyze_face_quality(image_rgb[crop_y1:crop_y2, crop_x1:crop_x2])
+                        if (crop_x2 > crop_x1 and crop_y2 > crop_y1)
+                        else None
+                    )
 
                     faces.append(FaceDetection(
                         face_id=idx,
