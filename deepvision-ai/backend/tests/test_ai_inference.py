@@ -336,19 +336,52 @@ def test_device_resolution_fallback_never_crashes(monkeypatch):
 
 
 def test_settings_ai_device_configuration():
-    """Verify Settings supports AI_DEVICE=auto, cpu, and gpu."""
-    s_auto = Settings(AI_DEVICE="auto")
-    assert s_auto.AI_DEVICE == "auto"
-
-    s_cpu = Settings(AI_DEVICE="cpu")
-    assert s_cpu.AI_DEVICE == "cpu"
-
-    s_gpu = Settings(AI_DEVICE="gpu")
-    assert s_gpu.AI_DEVICE == "gpu"
-
-    # Default should be auto
+    """Verify Settings supports typed AI settings and validation rules."""
     s_default = Settings()
     assert s_default.AI_DEVICE == "auto"
+    assert s_default.AI_MODEL_NAME == "scrfd_500m"
+    assert s_default.AI_MODEL_VERSION == "1.0.0"
+    assert s_default.AI_CONFIDENCE_THRESHOLD == 0.50
+    assert s_default.AI_MAX_IMAGE_SIZE_MB == 10
+    assert s_default.AI_MAX_IMAGE_DIMENSION == 4096
+    assert s_default.AI_ENABLE_GPU is False
+    assert s_default.ai_max_image_bytes == 10 * 1024 * 1024
+
+    # Custom valid configuration
+    s_custom = Settings(
+        AI_DEVICE="cpu",
+        AI_MODEL_NAME="scrfd_2.5g",
+        AI_MODEL_VERSION="2.0.0",
+        AI_CONFIDENCE_THRESHOLD=0.65,
+        AI_MAX_IMAGE_SIZE_MB=25,
+        AI_MAX_IMAGE_DIMENSION=2048,
+        AI_ENABLE_GPU="true",
+    )
+    assert s_custom.AI_DEVICE == "cpu"
+    assert s_custom.AI_MODEL_NAME == "scrfd_2.5g"
+    assert s_custom.AI_MODEL_VERSION == "2.0.0"
+    assert s_custom.AI_CONFIDENCE_THRESHOLD == 0.65
+    assert s_custom.AI_MAX_IMAGE_SIZE_MB == 25
+    assert s_custom.AI_MAX_IMAGE_DIMENSION == 2048
+    assert s_custom.AI_ENABLE_GPU is True
+
+    # Invalid confidence threshold (<0 or >1) rejected
+    with pytest.raises(Exception):
+        Settings(AI_CONFIDENCE_THRESHOLD=1.5)
+
+    with pytest.raises(Exception):
+        Settings(AI_CONFIDENCE_THRESHOLD=-0.1)
+
+    # Invalid image limits rejected
+    with pytest.raises(Exception):
+        Settings(AI_MAX_IMAGE_SIZE_MB=0)
+
+    with pytest.raises(Exception):
+        Settings(AI_MAX_IMAGE_DIMENSION=32)
+
+    # Test resolve_device with enable_gpu=False forcing CPU
+    assert resolve_device("gpu", enable_gpu=False) == "cpu"
+    assert resolve_device("auto", enable_gpu=False) == "cpu"
 
 
 def test_optimal_providers_always_contain_cpu_fallback():

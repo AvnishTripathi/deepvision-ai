@@ -79,17 +79,26 @@ def is_gpu_available() -> bool:
     return False
 
 
-def resolve_device(requested_device: Union[DeviceType, str] = DeviceType.AUTO) -> str:
+def resolve_device(
+    requested_device: Union[DeviceType, str] = DeviceType.AUTO,
+    enable_gpu: Optional[bool] = None,
+) -> str:
     """
     Resolves 'auto', 'cpu', or 'gpu' against real system hardware.
 
     Behavior:
-    - AUTO: Automatically selects best supported hardware. If GPU is available, selects GPU;
-            otherwise gracefully falls back to CPU.
+    - If enable_gpu is False: forces CPU execution regardless of detected hardware.
+    - AUTO: Automatically selects best supported hardware. If GPU is available (and enabled),
+            selects GPU; otherwise gracefully falls back to CPU.
     - CPU: Explicitly selects CPU.
-    - GPU: Selects GPU if supported. If GPU is unavailable, logs a notice and gracefully
-           falls back to CPU. Never raises an unhandled crash or terminates.
+    - GPU: Selects GPU if supported and enabled. If unavailable or disabled, logs a notice
+           and gracefully falls back to CPU. Never raises an unhandled crash or terminates.
     """
+    # Check GPU enablement flag
+    if enable_gpu is False:
+        logger.info("GPU acceleration is disabled via configuration (AI_ENABLE_GPU=False); selecting CPU runtime.")
+        return "cpu"
+
     # Normalize input
     if isinstance(requested_device, DeviceType):
         target = requested_device.value
