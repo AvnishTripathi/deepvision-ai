@@ -7,13 +7,16 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
+from app.core.logging import setup_logging
 from app.core.database import init_db
+from app.core.error_handlers import register_exception_handlers
 from app.api.v1 import api_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Initialize database connection & metadata
+    # Initialize application logging & database connection
+    setup_logging()
     init_db()
     yield
 
@@ -27,6 +30,9 @@ app = FastAPI(
     openapi_url="/openapi.json",
     lifespan=lifespan,
 )
+
+# Register centralized exception handlers (sanitizes responses, prevents stack trace leakage)
+register_exception_handlers(app)
 
 # CORS middleware configured via typed settings
 app.add_middleware(

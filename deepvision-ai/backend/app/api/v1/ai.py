@@ -7,17 +7,16 @@ and AI engine runtime status telemetry.
 import os
 import logging
 from typing import Optional
-from fastapi import APIRouter, UploadFile, File, Query, Depends, status
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, UploadFile, File, Query, Depends
 
 from app.core.config import settings
 from app.core.exceptions import (
-    CorruptedImageException,
+    UnsupportedImageError,
     EmptyImageException,
     ImageTooLargeException,
     InvalidImageDimensionsException,
-    UnsupportedImageFormatException,
     DetectorNotConfiguredException,
+    InferenceError,
 )
 from app.ai.detection.preprocessing import load_image
 from app.schemas.ai import (
@@ -51,6 +50,7 @@ ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
         200: {"description": "Face detection analysis completed successfully"},
         400: {"description": "Invalid, corrupted, or unsupported image input"},
         413: {"description": "Image payload size exceeds configured limits"},
+        500: {"description": "Internal model evaluation error (sanitized)"},
         503: {
             "model": AIDetectionErrorResponse,
             "description": "Detector model is not configured or operational",
@@ -73,6 +73,7 @@ async def detect_faces(
     """
     Ingests and validates image upload, enforces payload and dimension limits,
     verifies detector operational state, and executes face detection inference.
+    All errors raise domain-specific AI exceptions mapped to sanitized HTTP responses.
     """
     filename = file.filename or ""
     content_type = (file.content_type or "").lower().strip()
@@ -81,167 +82,64 @@ async def detect_faces(
     # 1. File Type Validation (MIME type & extension)
     if content_type not in ALLOWED_IMAGE_MIME_TYPES and ext not in ALLOWED_EXTENSIONS:
         logger.warning("Rejected file with invalid type: content_type='%s', ext='%s'", content_type, ext)
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "success": False,
-                "error": "unsupported_media_type",
-                "message": (
-                    f"Unsupported file type '{content_type or ext}'. "
-                    f"Allowed formats: image/jpeg, image/png, image/webp, image/bmp."
-                ),
-                "detail": (
-                    f"Unsupported file type '{content_type or ext}'. "
-                    f"Allowed formats: image/jpeg, image/png, image/webp, image/bmp."
-                ),
-            },
+        raise UnsupportedImageError(
+            message=(
+                f"Unsupported file type '{content_type or ext}'. "
+                f"Allowed formats: image/jpeg, image/png, image/webp, image/bmp."
+            )
         )
 
-    # 2. File Size Validation (stream reading & limit check)
+    # 2. File Size & Payload Stream Reading
     try:
         content = await file.read()
     except Exception as exc:
-        logger.error("Failed reading uploaded file stream: %s", exc)
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "success": False,
-                "error": "file_read_error",
-                "message": f"Failed to read uploaded file payload: {str(exc)}",
-                "detail": f"Failed to read uploaded file payload: {str(exc)}",
-            },
-        )
+        logger.error("Failed reading uploaded file stream: %s", exc, exc_info=True)
+        raise EmptyImageException("Failed to read uploaded file payload stream.")
 
     if len(content) == 0:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "success": False,
-                "error": "empty_file",
-                "message": "Uploaded file is empty (0 bytes).",
-                "detail": "Uploaded file is empty (0 bytes).",
-            },
-        )
+        raise EmptyImageException("Uploaded file is empty (0 bytes).")
 
     if len(content) > settings.ai_max_image_bytes:
-        return JSONResponse(
-            status_code=getattr(status, "HTTP_413_CONTENT_TOO_LARGE", 413),
-            content={
-                "success": False,
-                "error": "payload_too_large",
-                "message": (
-                    f"Image payload size ({len(content)} bytes) exceeds configured limit "
-                    f"of {settings.AI_MAX_IMAGE_SIZE_MB}MB ({settings.ai_max_image_bytes} bytes)."
-                ),
-                "detail": (
-                    f"Image payload size ({len(content)} bytes) exceeds configured limit "
-                    f"of {settings.AI_MAX_IMAGE_SIZE_MB}MB ({settings.ai_max_image_bytes} bytes)."
-                ),
-            },
+        raise ImageTooLargeException(
+            f"Image payload size ({len(content)} bytes) exceeds configured limit "
+            f"of {settings.AI_MAX_IMAGE_SIZE_MB}MB ({settings.ai_max_image_bytes} bytes)."
         )
 
-    # 3. Corrupted Image Decoding & Dimension Validation
-    try:
-        image_np = load_image(content)
-    except CorruptedImageException as exc:
-        logger.warning("Rejected corrupted image upload: %s", exc)
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "success": False,
-                "error": "corrupted_image",
-                "message": str(exc),
-                "detail": str(exc),
-            },
-        )
-    except EmptyImageException as exc:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "success": False,
-                "error": "empty_image",
-                "message": str(exc),
-                "detail": str(exc),
-            },
-        )
-    except (ImageTooLargeException, InvalidImageDimensionsException) as exc:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "success": False,
-                "error": "invalid_dimensions",
-                "message": str(exc),
-                "detail": str(exc),
-            },
-        )
-    except UnsupportedImageFormatException as exc:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "success": False,
-                "error": "unsupported_format",
-                "message": str(exc),
-                "detail": str(exc),
-            },
-        )
-    except Exception as exc:
-        logger.error("Unexpected error decoding image: %s", exc)
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "success": False,
-                "error": "decoding_error",
-                "message": f"Unable to decode image: {str(exc)}",
-                "detail": f"Unable to decode image: {str(exc)}",
-            },
-        )
+    # 3. Corrupted Image Decoding & Dimension Verification
+    # load_image automatically raises CorruptedImageException, EmptyImageException,
+    # or InvalidImageDimensionsException if byte stream is corrupted.
+    image_np = load_image(content)
 
     # 4. Explicit Image Dimensions Limit Check
     h, w = image_np.shape[:2]
     if h > settings.AI_MAX_IMAGE_DIMENSION or w > settings.AI_MAX_IMAGE_DIMENSION:
-        return JSONResponse(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            content={
-                "success": False,
-                "error": "dimensions_too_large",
-                "message": (
-                    f"Image resolution {w}x{h} exceeds maximum allowed dimension "
-                    f"of {settings.AI_MAX_IMAGE_DIMENSION}px."
-                ),
-                "detail": (
-                    f"Image resolution {w}x{h} exceeds maximum allowed dimension "
-                    f"of {settings.AI_MAX_IMAGE_DIMENSION}px."
-                ),
-            },
+        raise InvalidImageDimensionsException(
+            f"Image resolution {w}x{h} exceeds maximum allowed dimension "
+            f"of {settings.AI_MAX_IMAGE_DIMENSION}px."
         )
 
     # 5. Operational Detector Check
     # Never return fabricated detections. If the model is not operational,
-    # return a structured development error explaining that the detector is not configured.
+    # raise DetectorNotConfiguredException mapped to HTTP 503.
     if not ai_service.is_operational:
         logger.info(
             "Detection request received but detector is not operational (model: %s, device: %s)",
             settings.AI_MODEL_NAME,
             settings.AI_DEVICE,
         )
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={
-                "success": False,
-                "error": "detector_not_configured",
-                "message": (
-                    f"AI face detection model is not operational. The detector model weights "
-                    f"for '{settings.AI_MODEL_NAME}' are not configured or loaded into the inference engine. "
-                    f"Please place model weights in 'models/face_detection/' as documented in docs/model-setup.md."
-                ),
-                "detail": (
-                    f"AI face detection model is not operational. The detector model weights "
-                    f"for '{settings.AI_MODEL_NAME}' are not configured or loaded into the inference engine. "
-                    f"Please place model weights in 'models/face_detection/' as documented in docs/model-setup.md."
-                ),
-                "model": settings.AI_MODEL_NAME,
-                "device": settings.AI_DEVICE.upper(),
-            },
+        raise DetectorNotConfiguredException(
+            message=(
+                f"AI face detection model is not operational. The detector model weights "
+                f"for '{settings.AI_MODEL_NAME}' are not configured or loaded into the inference engine. "
+                f"Please place model weights in 'models/face_detection/' as documented in docs/model-setup.md."
+            ),
+            detail=(
+                f"AI face detection model is not operational. The detector model weights "
+                f"for '{settings.AI_MODEL_NAME}' are not configured or loaded into the inference engine. "
+                f"Please place model weights in 'models/face_detection/' as documented in docs/model-setup.md."
+            ),
+            model_name=settings.AI_MODEL_NAME,
+            device=settings.AI_DEVICE.upper(),
         )
 
     # 6. Execute Real Model Inference (Real detections only — never fabricated)
@@ -250,28 +148,14 @@ async def detect_faces(
             image_input=image_np,
             confidence_threshold=confidence_threshold,
         )
-    except DetectorNotConfiguredException as exc:
-        return JSONResponse(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={
-                "success": False,
-                "error": "detector_not_configured",
-                "message": str(exc),
-                "detail": str(exc),
-                "model": settings.AI_MODEL_NAME,
-                "device": settings.AI_DEVICE.upper(),
-            },
-        )
+    except DetectorNotConfiguredException:
+        raise
     except Exception as exc:
-        logger.error("Inference execution failed: %s", exc)
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "success": False,
-                "error": "inference_failure",
-                "message": f"Inference engine encountered an internal error: {str(exc)}",
-                "detail": str(exc),
-            },
+        logger.error("Inference execution failed on model %s: %s", settings.AI_MODEL_NAME, exc, exc_info=True)
+        raise InferenceError(
+            message="An error occurred during AI inference processing.",
+            detail=str(exc),
+            model_name=settings.AI_MODEL_NAME,
         )
 
     # 7. Format Real Structured Output
