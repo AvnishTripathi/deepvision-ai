@@ -24,6 +24,9 @@ from app.ai.detection.schemas import (
 )
 from app.ai.detection.base import BaseFaceDetector
 from app.ai.detection.preprocessing import (
+    ImagePreprocessor,
+    ImagePreprocessingConfig,
+    PreprocessedImage,
     load_image,
     prepare_input_tensor,
     unletterbox_coordinates,
@@ -47,10 +50,14 @@ class FaceDetector(BaseFaceDetector):
         model_path: Optional[str] = None,
         device: str = "auto",
         target_size: Tuple[int, int] = (640, 640),
+        preprocessor: Optional[ImagePreprocessor] = None,
     ):
         self.model_path = model_path
         self.device = resolve_device(device)
         self.target_size = target_size
+        self.preprocessor = preprocessor or ImagePreprocessor(
+            ImagePreprocessingConfig(target_size=target_size)
+        )
         self.engine: Optional[InferenceRuntime] = None
 
         if model_path:
@@ -113,12 +120,12 @@ class FaceDetector(BaseFaceDetector):
 
         # 1. Ingestion & Preprocessing
         start_prep = time.perf_counter()
-        image_rgb = load_image(image_input)
-        orig_h, orig_w = image_rgb.shape[:2]
-
-        input_tensor, scale, padding = prepare_input_tensor(
-            image_rgb, target_size=self.target_size, normalize=True
-        )
+        prep_res: PreprocessedImage = self.preprocessor.process(image_input)
+        input_tensor = prep_res.tensor
+        image_rgb = prep_res.original_image
+        orig_h, orig_w = prep_res.original_shape
+        scale = prep_res.scale
+        padding = prep_res.padding
         prep_time_ms = round((time.perf_counter() - start_prep) * 1000, 2)
 
         # 2. Forward-Pass Model Inference

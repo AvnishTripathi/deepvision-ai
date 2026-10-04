@@ -10,6 +10,9 @@ from PIL import Image
 import pytest
 
 from app.ai.preprocessing import (
+    ImagePreprocessor,
+    ImagePreprocessingConfig,
+    PreprocessedImage,
     load_image,
     letterbox_resize,
     unletterbox_coordinates,
@@ -41,6 +44,13 @@ from app.ai.inference.device import (
     get_available_gpu_providers,
     get_optimal_providers,
     get_device_telemetry,
+)
+from app.core.exceptions import (
+    CorruptedImageException,
+    EmptyImageException,
+    UnsupportedImageFormatException,
+    InvalidImageDimensionsException,
+    ImageTooLargeException,
 )
 from app.core.config import Settings
 
@@ -415,5 +425,110 @@ def test_face_detector_lifecycle(sample_synthetic_image):
         assert isinstance(managed_res, FrameInferenceResult)
     # Exiting context manager triggers unload
     assert not managed_detector.is_loaded
+
+
+def test_preprocessing_pipeline_corrupted_image():
+    """Verify CorruptedImageException is raised on corrupt byte streams or invalid paths."""
+    preprocessor = ImagePreprocessor()
+
+    # Random corrupt bytes
+    corrupt_bytes = b"NOT_A_VALID_JPEG_OR_PNG_IMAGE_DATA_CORRUPT"
+    with pytest.raises(CorruptedImageException):
+        preprocessor.load_image(corrupt_bytes)
+
+    # Non-existent file path
+    with pytest.raises(CorruptedImageException):
+        preprocessor.load_image("non_existent_file_path_xyz123.jpg")
+
+
+def test_preprocessing_pipeline_empty_image():
+    """Verify EmptyImageException is raised on empty byte streams, arrays, or None."""
+    preprocessor = ImagePreprocessor()
+
+    # None
+    with pytest.raises(EmptyImageException):
+        preprocessor.load_image(None)
+
+    # Zero bytes
+    with pytest.raises(EmptyImageException):
+        preprocessor.load_image(b"")
+
+    # Empty array
+    with pytest.raises(EmptyImageException):
+        preprocessor.load_image(np.array([]))
+
+
+def test_preprocessing_pipeline_unsupported_format():
+    """Verify UnsupportedImageFormatException on invalid types or array shapes."""
+    preprocessor = ImagePreprocessor()
+
+    # Unsupported type (integer or float)
+    with pytest.raises(UnsupportedImageFormatException):
+        preprocessor.load_image(12345)  # type: ignore
+
+    # Unsupported 5D array
+    with pytest.raises(UnsupportedImageFormatException):
+        preprocessor.load_image(np.zeros((1, 2, 3, 4, 5)))
+
+    # Unsupported 10-channel array
+    with pytest.raises(UnsupportedImageFormatException):
+        preprocessor.load_image(np.zeros((100, 100, 10)))
+
+
+def test_preprocessing_pipeline_image_too_large():
+    """Verify ImageTooLargeException on images exceeding maximum dimension limits."""
+    # Configure low max_dimension for quick test
+    config = ImagePreprocessingConfig(max_dimension=1000)
+    preprocessor = ImagePreprocessor(config)
+
+    oversized = np.zeros((1500, 500, 3), dtype=np.uint8)
+    with pytest.raises(ImageTooLargeException):
+        preprocessor.load_image(oversized)
+
+
+def test_preprocessing_pipeline_color_conversions():
+    """Verify Grayscale and RGBA arrays are properly converted to RGB."""
+    preprocessor = ImagePreprocessor()
+
+    # Grayscale (H, W) -> RGB (H, W, 3)
+    gray = np.full((100, 100), 128, dtype=np.uint8)
+    rgb_from_gray = preprocessor.load_image(gray)
+    assert rgb_from_gray.shape == (100, 100, 3)
+    assert rgb_from_gray[0, 0, 0] == 128
+    assert rgb_from_gray[0, 0, 1] == 128
+
+    # RGBA (H, W, 4) -> RGB (H, W, 3)
+    rgba = np.zeros((100, 100, 4), dtype=np.uint8)
+    rgba[:, :, 0] = 255  # Red channel
+    rgba[:, :, 3] = 255  # Alpha
+    rgb_from_rgba = preprocessor.load_image(rgba)
+    assert rgb_from_rgba.shape == (100, 100, 3)
+    assert rgb_from_rgba[0, 0, 0] == 255
+
+
+def test_preprocessing_pipeline_isolation_and_config(sample_synthetic_image):
+    """Verify ImagePreprocessor can be isolated and customized independently of detectors."""
+    custom_config = ImagePreprocessingConfig(
+        target_size=(320, 320),
+        pad_color=(0, 0, 0),
+        normalize=True,
+    )
+    preprocessor = ImagePreprocessor(custom_config)
+
+    res: PreprocessedImage = preprocessor.process(sample_synthetic_image)
+    assert isinstance(res, PreprocessedImage)
+    assert res.tensor.shape == (1, 3, 320, 320)
+    assert res.original_shape == (480, 640)
+    assert res.original_image.shape == (480, 640, 3)
+    assert 0.0 <= res.tensor.min() <= res.tensor.max() <= 1.0
+
+    # Unletterbox coordinates works isolated from detector
+    unpadded = preprocessor.unletterbox_coordinates(
+        x1=50, y1=50, x2=150, y2=150,
+        scale=res.scale,
+        padding=res.padding,
+        orig_shape=res.original_shape,
+    )
+    assert len(unpadded) == 4
 
 

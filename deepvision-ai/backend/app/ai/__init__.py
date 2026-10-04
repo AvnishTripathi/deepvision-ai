@@ -7,6 +7,9 @@ device configuration, and analytics modules.
 from app.ai.detection.base import BaseFaceDetector
 from app.ai.detection.detector import FaceDetector
 from app.ai.detection.preprocessing import (
+    ImagePreprocessor,
+    ImagePreprocessingConfig,
+    PreprocessedImage,
     load_image,
     letterbox_resize,
     unletterbox_coordinates,
@@ -48,6 +51,9 @@ __all__ = [
     # Detection
     "BaseFaceDetector",
     "FaceDetector",
+    "ImagePreprocessor",
+    "ImagePreprocessingConfig",
+    "PreprocessedImage",
     "load_image",
     "letterbox_resize",
     "unletterbox_coordinates",

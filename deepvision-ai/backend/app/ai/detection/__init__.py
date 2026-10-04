@@ -17,6 +17,9 @@ from app.ai.detection.schemas import (
     PerformanceMetrics,
 )
 from app.ai.detection.preprocessing import (
+    ImagePreprocessor,
+    ImagePreprocessingConfig,
+    PreprocessedImage,
     load_image,
     letterbox_resize,
     unletterbox_coordinates,
@@ -35,6 +38,9 @@ __all__ = [
     "DetectionResponse",
     "FrameInferenceResult",
     "PerformanceMetrics",
+    "ImagePreprocessor",
+    "ImagePreprocessingConfig",
+    "PreprocessedImage",
     "load_image",
     "letterbox_resize",
     "unletterbox_coordinates",

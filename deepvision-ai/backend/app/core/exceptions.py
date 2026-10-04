@@ -34,3 +34,33 @@ class ModelInferenceException(DeepVisionException):
 class MediaProcessingException(DeepVisionException):
     """Raised when media decoding, transcoding, or reading fails."""
     pass
+
+
+class ImagePreprocessingException(DeepVisionException):
+    """Base exception for all image ingestion and preprocessing errors."""
+    pass
+
+
+class CorruptedImageException(ImagePreprocessingException):
+    """Raised when image bytes or files cannot be parsed due to data corruption."""
+    pass
+
+
+class EmptyImageException(ImagePreprocessingException):
+    """Raised when the image is empty (zero bytes or zero height/width)."""
+    pass
+
+
+class UnsupportedImageFormatException(ImagePreprocessingException):
+    """Raised when the image format or color channels cannot be processed."""
+    pass
+
+
+class InvalidImageDimensionsException(ImagePreprocessingException):
+    """Raised when image dimensions are invalid (e.g. non-positive or corrupted shape)."""
+    pass
+
+
+class ImageTooLargeException(InvalidImageDimensionsException):
+    """Raised when image exceeds maximum supported pixel dimensions or memory limits."""
+    pass
