@@ -228,3 +228,61 @@ class PerformanceMetrics(BaseModel):
     fps: float = Field(0.0, description="Processed frames per second")
     device: str = Field("cpu", description="Active computing hardware")
     runtime: str = Field("CPUExecutionProvider", description="Execution provider used")
+
+
+class FaceBoundingBox(BaseModel):
+    """Face bounding box coordinates in absolute image pixels."""
+    x1: float = Field(..., description="Left pixel coordinate")
+    y1: float = Field(..., description="Top pixel coordinate")
+    x2: float = Field(..., description="Right pixel coordinate")
+    y2: float = Field(..., description="Bottom pixel coordinate")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class DetectedFaceItem(BaseModel):
+    """Individual face detection record in development detection response."""
+    bbox: FaceBoundingBox = Field(..., description="Face bounding box")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Detection confidence score")
+    landmarks: Optional[List[LandmarkPoint]] = Field(default=None, description="Optional 5-point facial landmarks")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class ImageDimensions(BaseModel):
+    """Pixel dimensions of the analyzed image."""
+    width: int = Field(..., description="Image width in pixels")
+    height: int = Field(..., description="Image height in pixels")
+
+
+class AIDetectionResponse(BaseModel):
+    """
+    Standard development AI detection endpoint response.
+    Conforms to:
+    {
+      "success": true,
+      "model": "selected-model",
+      "device": "CPU",
+      "image": {"width": 1920, "height": 1080},
+      "processing_time_ms": 42.5,
+      "faces": [{"bbox": {"x1": 100, "y1": 120, "x2": 300, "y2": 350}, "confidence": 0.96}]
+    }
+    """
+    success: bool = Field(True, description="Detection execution status")
+    model: str = Field(..., description="Active detection model name")
+    device: str = Field(..., description="Inference device used (e.g. CPU, GPU)")
+    image: ImageDimensions = Field(..., description="Dimensions of the analyzed image")
+    processing_time_ms: float = Field(..., description="Total pipeline latency in milliseconds")
+    faces: List[DetectedFaceItem] = Field(default_factory=list, description="List of detected faces")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class AIDetectionErrorResponse(BaseModel):
+    """Development error response returned when detector is not configured or operational."""
+    success: bool = Field(False, description="Failure indicator")
+    error: str = Field(..., description="Error identifier code")
+    message: str = Field(..., description="Human-readable explanation")
+    detail: str = Field(..., description="Technical detail message")
+    model: Optional[str] = Field(None, description="Target model name")
+    device: Optional[str] = Field(None, description="Configured device")

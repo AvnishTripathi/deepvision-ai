@@ -47,6 +47,14 @@ class AIService:
         """Access the underlying detector implementing BaseFaceDetector interface."""
         return self._detector
 
+    @property
+    def is_operational(self) -> bool:
+        """
+        Indicates whether the underlying detector has active, operational model weights loaded.
+        Returns False if no physical model weights are loaded in the inference runtime.
+        """
+        return bool(getattr(self._detector, "is_loaded", False))
+
     def detect_faces(
         self,
         image_input: ImageSource,

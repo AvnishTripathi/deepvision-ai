@@ -31,6 +31,11 @@ class ModelInferenceException(DeepVisionException):
     pass
 
 
+class DetectorNotConfiguredException(DeepVisionException):
+    """Raised when the AI face detector is not configured or model weights are missing."""
+    pass
+
+
 class MediaProcessingException(DeepVisionException):
     """Raised when media decoding, transcoding, or reading fails."""
     pass

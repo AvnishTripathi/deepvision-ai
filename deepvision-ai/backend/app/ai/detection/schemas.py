@@ -14,6 +14,11 @@ from app.schemas.ai import (
     DetectionResponse,
     FrameInferenceResult,
     PerformanceMetrics,
+    FaceBoundingBox,
+    DetectedFaceItem,
+    ImageDimensions,
+    AIDetectionResponse,
+    AIDetectionErrorResponse,
 )
 
 __all__ = [
@@ -26,4 +31,9 @@ __all__ = [
     "DetectionResponse",
     "FrameInferenceResult",
     "PerformanceMetrics",
+    "FaceBoundingBox",
+    "DetectedFaceItem",
+    "ImageDimensions",
+    "AIDetectionResponse",
+    "AIDetectionErrorResponse",
 ]
