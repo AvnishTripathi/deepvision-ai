@@ -59,6 +59,7 @@ class AIService:
         self,
         image_input: ImageSource,
         confidence_threshold: Optional[float] = None,
+        request_id: Optional[str] = None,
     ) -> DetectionResponse:
         """
         Application-level face detection entrypoint.
@@ -66,6 +67,7 @@ class AIService:
         Args:
             image_input: Image bytes, filepath, PIL Image, or NumPy array.
             confidence_threshold: Optional override for minimum detection confidence.
+            request_id: Optional trace ID for correlation in structured logs.
             
         Returns:
             DetectionResponse: Standardized, strongly typed detection response.
@@ -92,10 +94,11 @@ class AIService:
         )
 
         logger.debug(
-            "Detected %d face(s) in %sms on device %s",
+            "Detected %d face(s) in %sms on device %s [request_id=%s]",
             result.face_count,
             result.processing_time_ms,
             result.device,
+            request_id or "untracked",
         )
 
         return result

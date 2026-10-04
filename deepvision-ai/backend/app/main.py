@@ -3,8 +3,9 @@ DeepVision AI — Application Entry Point
 Clean, scalable FastAPI service for DeepVision AI.
 """
 
+import uuid
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.core.logging import setup_logging
@@ -33,6 +34,18 @@ app = FastAPI(
 
 # Register centralized exception handlers (sanitizes responses, prevents stack trace leakage)
 register_exception_handlers(app)
+
+
+# Request ID tracing middleware
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """Attaches a unique trace ID to each request and propagates it in response headers."""
+    request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = request_id
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    return response
+
 
 # CORS middleware configured via typed settings
 app.add_middleware(

@@ -5,11 +5,13 @@ and AI engine runtime status telemetry.
 """
 
 import os
+import uuid
 import logging
 from typing import Optional
-from fastapi import APIRouter, UploadFile, File, Query, Depends
+from fastapi import APIRouter, Request, UploadFile, File, Query, Depends
 
 from app.core.config import settings
+from app.core.logging import log_ai_inference
 from app.core.exceptions import (
     UnsupportedImageError,
     EmptyImageException,
@@ -64,6 +66,7 @@ ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
     ),
 )
 async def detect_faces(
+    request: Request,
     file: UploadFile = File(..., description="Image file to analyze for face detection"),
     confidence_threshold: Optional[float] = Query(
         None, ge=0.0, le=1.0, description="Optional minimum confidence threshold override"
@@ -74,14 +77,26 @@ async def detect_faces(
     Ingests and validates image upload, enforces payload and dimension limits,
     verifies detector operational state, and executes face detection inference.
     All errors raise domain-specific AI exceptions mapped to sanitized HTTP responses.
+
+    Data Retention & Privacy:
+    - In-Memory Processing: Images are decoded in volatile memory and never persisted to disk.
+    - Zero Payload Logging: Raw pixel data, base64 strings, and binary buffers are NEVER logged.
     """
+    # Resolve or extract request tracing identifier
+    request_id = getattr(request.state, "request_id", None) or request.headers.get("X-Request-ID") or str(uuid.uuid4())
+
     filename = file.filename or ""
     content_type = (file.content_type or "").lower().strip()
     ext = os.path.splitext(filename.lower())[1]
 
     # 1. File Type Validation (MIME type & extension)
     if content_type not in ALLOWED_IMAGE_MIME_TYPES and ext not in ALLOWED_EXTENSIONS:
-        logger.warning("Rejected file with invalid type: content_type='%s', ext='%s'", content_type, ext)
+        logger.warning(
+            "Rejected file with invalid type [request_id=%s]: content_type='%s', ext='%s'",
+            request_id,
+            content_type,
+            ext,
+        )
         raise UnsupportedImageError(
             message=(
                 f"Unsupported file type '{content_type or ext}'. "
@@ -89,11 +104,11 @@ async def detect_faces(
             )
         )
 
-    # 2. File Size & Payload Stream Reading
+    # 2. File Size & In-Memory Payload Stream Reading
     try:
         content = await file.read()
     except Exception as exc:
-        logger.error("Failed reading uploaded file stream: %s", exc, exc_info=True)
+        logger.error("Failed reading uploaded file stream [request_id=%s]: %s", request_id, exc, exc_info=True)
         raise EmptyImageException("Failed to read uploaded file payload stream.")
 
     if len(content) == 0:
@@ -105,9 +120,7 @@ async def detect_faces(
             f"of {settings.AI_MAX_IMAGE_SIZE_MB}MB ({settings.ai_max_image_bytes} bytes)."
         )
 
-    # 3. Corrupted Image Decoding & Dimension Verification
-    # load_image automatically raises CorruptedImageException, EmptyImageException,
-    # or InvalidImageDimensionsException if byte stream is corrupted.
+    # 3. Corrupted Image Decoding & Dimension Verification (In-memory only, no disk writes)
     image_np = load_image(content)
 
     # 4. Explicit Image Dimensions Limit Check
@@ -123,7 +136,8 @@ async def detect_faces(
     # raise DetectorNotConfiguredException mapped to HTTP 503.
     if not ai_service.is_operational:
         logger.info(
-            "Detection request received but detector is not operational (model: %s, device: %s)",
+            "Detection request received but detector is not operational [request_id=%s, model=%s, device=%s]",
+            request_id,
             settings.AI_MODEL_NAME,
             settings.AI_DEVICE,
         )
@@ -147,11 +161,18 @@ async def detect_faces(
         detection_result = ai_service.detect_faces(
             image_input=image_np,
             confidence_threshold=confidence_threshold,
+            request_id=request_id,
         )
     except DetectorNotConfiguredException:
         raise
     except Exception as exc:
-        logger.error("Inference execution failed on model %s: %s", settings.AI_MODEL_NAME, exc, exc_info=True)
+        logger.error(
+            "Inference execution failed on model %s [request_id=%s]: %s",
+            settings.AI_MODEL_NAME,
+            request_id,
+            exc,
+            exc_info=True,
+        )
         raise InferenceError(
             message="An error occurred during AI inference processing.",
             detail=str(exc),
@@ -173,6 +194,18 @@ async def detect_faces(
         for d in detection_result.detections
     ]
 
+    # 8. Structured Telemetry Logging (Guaranteed zero image content logged)
+    log_ai_inference(
+        logger_instance=logger,
+        model=detection_result.model_name or settings.AI_MODEL_NAME,
+        device=str(detection_result.device).upper(),
+        image_width=w,
+        image_height=h,
+        number_of_faces=len(face_items),
+        processing_time_ms=detection_result.processing_time_ms,
+        request_id=request_id,
+    )
+
     return AIDetectionResponse(
         success=True,
         model=detection_result.model_name or settings.AI_MODEL_NAME,
@@ -180,6 +213,7 @@ async def detect_faces(
         image=ImageDimensions(width=w, height=h),
         processing_time_ms=round(detection_result.processing_time_ms, 2),
         faces=face_items,
+        request_id=request_id,
     )
 
 

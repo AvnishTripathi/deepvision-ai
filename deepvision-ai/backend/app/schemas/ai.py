@@ -274,6 +274,7 @@ class AIDetectionResponse(BaseModel):
     image: ImageDimensions = Field(..., description="Dimensions of the analyzed image")
     processing_time_ms: float = Field(..., description="Total pipeline latency in milliseconds")
     faces: List[DetectedFaceItem] = Field(default_factory=list, description="List of detected faces")
+    request_id: Optional[str] = Field(default=None, description="Unique request trace identifier")
 
     model_config = ConfigDict(populate_by_name=True)
 
