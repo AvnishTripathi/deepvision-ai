@@ -143,6 +143,7 @@ async def detect_faces(
     # 6. Format Real Structured Output
     face_items = [
         DetectedFaceItem(
+            face_id=d.face_id,
             bbox=FaceBoundingBox(
                 x1=round(d.bbox.x1, 2),
                 y1=round(d.bbox.y1, 2),

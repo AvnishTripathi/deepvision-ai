@@ -242,6 +242,7 @@ class FaceBoundingBox(BaseModel):
 
 class DetectedFaceItem(BaseModel):
     """Individual face detection record in development detection response."""
+    face_id: Optional[Union[str, int]] = Field(default=None, description="Face identifier (null for initial image detection)")
     bbox: FaceBoundingBox = Field(..., description="Face bounding box")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Detection confidence score")
     landmarks: Optional[List[LandmarkPoint]] = Field(default=None, description="Optional 5-point facial landmarks")

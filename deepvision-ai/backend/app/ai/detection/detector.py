@@ -204,7 +204,7 @@ class FaceDetector(BaseFaceDetector):
                     )
 
                     faces.append(FaceDetection(
-                        face_id=idx,
+                        face_id=None,
                         bbox=bbox,
                         confidence=round(conf, 4),
                         landmarks=landmarks,
