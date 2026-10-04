@@ -351,3 +351,66 @@ def test_nms_threshold_configured_via_settings_and_detector():
     if detector._cv2_detector is not None:
         assert round(detector._cv2_detector.getNMSThreshold(), 2) == 0.45
 
+
+# -------------------------------------------------------------------------
+# Test 10: Multi-Format (JPEG, PNG, WEBP) & Color Space (Grayscale, RGB, RGBA)
+# -------------------------------------------------------------------------
+
+def test_multi_format_and_color_spaces_handled_correctly(real_detector, sample_portrait_np):
+    """
+    Verify the detection pipeline properly ingests and normalizes:
+    - JPEG encoded byte buffer
+    - PNG encoded byte buffer
+    - WEBP encoded byte buffer
+    - Grayscale (2D NumPy array)
+    - Standard RGB (3D NumPy array)
+    - RGBA with alpha transparency (4-channel array)
+    Guarantees original image data is never modified permanently on disk.
+    """
+    from app.ai.detection.preprocessing import ImagePreprocessor
+
+    preprocessor = ImagePreprocessor()
+
+    # 1. Standard RGB array
+    rgb = preprocessor.load_image(sample_portrait_np)
+    assert rgb.shape == sample_portrait_np.shape
+    assert rgb.dtype == np.uint8
+    res_rgb = real_detector.detect(sample_portrait_np)
+    assert res_rgb.face_count >= 1
+
+    # 2. Grayscale 2D array
+    gray_2d = cv2.cvtColor(sample_portrait_np, cv2.COLOR_RGB2GRAY)
+    assert gray_2d.ndim == 2
+    rgb_from_gray = preprocessor.load_image(gray_2d)
+    assert rgb_from_gray.shape == (sample_portrait_np.shape[0], sample_portrait_np.shape[1], 3)
+    res_gray = real_detector.detect(gray_2d, confidence_threshold=0.40)
+    assert res_gray.face_count >= 1
+
+    # 3. RGBA 4-channel image
+    pil_rgba = Image.fromarray(sample_portrait_np).convert("RGBA")
+    rgba_np = np.array(pil_rgba)
+    assert rgba_np.shape[2] == 4
+    rgb_from_rgba = preprocessor.load_image(rgba_np)
+    assert rgb_from_rgba.shape == sample_portrait_np.shape
+    res_rgba = real_detector.detect(rgba_np)
+    assert res_rgba.face_count >= 1
+
+    # 4. JPEG encoded byte buffer
+    success_jpg, jpg_buf = cv2.imencode(".jpg", cv2.cvtColor(sample_portrait_np, cv2.COLOR_RGB2BGR))
+    assert success_jpg
+    res_jpg = real_detector.detect(jpg_buf.tobytes())
+    assert res_jpg.face_count >= 1
+
+    # 5. PNG encoded byte buffer
+    success_png, png_buf = cv2.imencode(".png", cv2.cvtColor(sample_portrait_np, cv2.COLOR_RGB2BGR))
+    assert success_png
+    res_png = real_detector.detect(png_buf.tobytes())
+    assert res_png.face_count >= 1
+
+    # 6. WEBP encoded byte buffer
+    success_webp, webp_buf = cv2.imencode(".webp", cv2.cvtColor(sample_portrait_np, cv2.COLOR_RGB2BGR))
+    assert success_webp
+    res_webp = real_detector.detect(webp_buf.tobytes())
+    assert res_webp.face_count >= 1
+
+

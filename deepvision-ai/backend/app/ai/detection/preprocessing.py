@@ -75,10 +75,26 @@ class ImagePreprocessor:
                 )
 
             nparr = np.frombuffer(source, np.uint8)
-            bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if bgr is None:
-                raise CorruptedImageException("Corrupted or unreadable image bytes; failed to decode.")
-            rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            img_raw = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
+            if img_raw is None:
+                try:
+                    import io
+                    with Image.open(io.BytesIO(source)) as pil_img:
+                        rgb = np.array(pil_img.convert("RGB"), dtype=np.uint8)
+                except Exception:
+                    raise CorruptedImageException("Corrupted or unreadable image bytes; failed to decode.")
+            else:
+                if img_raw.ndim == 2:
+                    rgb = cv2.cvtColor(img_raw, cv2.COLOR_GRAY2RGB)
+                elif img_raw.ndim == 3:
+                    if img_raw.shape[2] == 4:
+                        rgb = cv2.cvtColor(img_raw, cv2.COLOR_BGRA2RGB)
+                    elif img_raw.shape[2] == 1:
+                        rgb = cv2.cvtColor(img_raw[:, :, 0], cv2.COLOR_GRAY2RGB)
+                    else:
+                        rgb = cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB)
+                else:
+                    rgb = cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB)
 
         # 2. File path ingestion
         elif isinstance(source, str):
@@ -93,10 +109,25 @@ class ImagePreprocessor:
                     f"{self.config.max_file_size_bytes} bytes."
                 )
 
-            bgr = cv2.imread(source, cv2.IMREAD_COLOR)
-            if bgr is None:
-                raise CorruptedImageException(f"Failed to read or decode image file at: {source}")
-            rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+            img_raw = cv2.imread(source, cv2.IMREAD_UNCHANGED)
+            if img_raw is None:
+                try:
+                    with Image.open(source) as pil_img:
+                        rgb = np.array(pil_img.convert("RGB"), dtype=np.uint8)
+                except Exception:
+                    raise CorruptedImageException(f"Failed to read or decode image file at: {source}")
+            else:
+                if img_raw.ndim == 2:
+                    rgb = cv2.cvtColor(img_raw, cv2.COLOR_GRAY2RGB)
+                elif img_raw.ndim == 3:
+                    if img_raw.shape[2] == 4:
+                        rgb = cv2.cvtColor(img_raw, cv2.COLOR_BGRA2RGB)
+                    elif img_raw.shape[2] == 1:
+                        rgb = cv2.cvtColor(img_raw[:, :, 0], cv2.COLOR_GRAY2RGB)
+                    else:
+                        rgb = cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB)
+                else:
+                    rgb = cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB)
 
         # 3. PIL Image ingestion
         elif isinstance(source, Image.Image):

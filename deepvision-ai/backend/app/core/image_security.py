@@ -237,18 +237,33 @@ def validate_and_decode_image_security(
             f"Image dimensions {width}x{height} exceed the maximum allowed limit of {max_dim}px."
         )
 
-    # 6. In-Memory OpenCV Decoding into Standard uint8 RGB
+    # 6. In-Memory Decoding into Standard uint8 RGB
     try:
         nparr = np.frombuffer(data, np.uint8)
-        bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-        if bgr is None:
-            raise CorruptedImageException("Failed to decode image byte stream into pixel matrix.")
-
-        rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
+        img_raw = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
+        if img_raw is None:
+            # Pillow in-memory fallback
+            with Image.open(io.BytesIO(data)) as pil_img:
+                rgb = np.array(pil_img.convert("RGB"), dtype=np.uint8)
+        else:
+            if img_raw.ndim == 2:
+                # Grayscale (H, W) -> RGB
+                rgb = cv2.cvtColor(img_raw, cv2.COLOR_GRAY2RGB)
+            elif img_raw.ndim == 3:
+                if img_raw.shape[2] == 4:
+                    # BGRA / RGBA -> RGB
+                    rgb = cv2.cvtColor(img_raw, cv2.COLOR_BGRA2RGB)
+                elif img_raw.shape[2] == 1:
+                    rgb = cv2.cvtColor(img_raw[:, :, 0], cv2.COLOR_GRAY2RGB)
+                else:
+                    # Standard 3-channel BGR -> RGB
+                    rgb = cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB)
+            else:
+                rgb = cv2.cvtColor(img_raw, cv2.COLOR_BGR2RGB)
     except CorruptedImageException:
         raise
     except Exception as exc:
-        logger.warning("OpenCV image decoding failed: %s", exc)
+        logger.warning("Image decoding failed: %s", exc)
         raise CorruptedImageException(f"Image decoding failed: {str(exc)}")
 
     dec_h, dec_w = rgb.shape[:2]
