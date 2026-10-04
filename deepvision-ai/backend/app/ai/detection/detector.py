@@ -31,6 +31,7 @@ from app.ai.detection.preprocessing import (
     prepare_input_tensor,
     unletterbox_coordinates,
 )
+from app.ai.detection.adapter import BaseModelAdapter, SCRFDAdapter
 from app.ai.analysis.quality import analyze_face_quality
 from app.ai.inference.runtime import InferenceRuntime
 from app.ai.inference.device import resolve_device
@@ -51,6 +52,7 @@ class FaceDetector(BaseFaceDetector):
         device: str = "auto",
         target_size: Tuple[int, int] = (640, 640),
         preprocessor: Optional[ImagePreprocessor] = None,
+        adapter: Optional[BaseModelAdapter] = None,
     ):
         self.model_path = model_path
         self.device = resolve_device(device)
@@ -58,6 +60,7 @@ class FaceDetector(BaseFaceDetector):
         self.preprocessor = preprocessor or ImagePreprocessor(
             ImagePreprocessingConfig(target_size=target_size)
         )
+        self.adapter = adapter or SCRFDAdapter()
         self.engine: Optional[InferenceRuntime] = None
 
         if model_path:
@@ -250,10 +253,15 @@ class FaceDetector(BaseFaceDetector):
         padding: Tuple[int, int],
         orig_shape: Tuple[int, int],
         confidence_threshold: float,
-    ) -> List[FaceDetectionResult]:
-        """Parses model outputs into FaceDetectionResult objects."""
-        faces: List[FaceDetectionResult] = []
-        return faces
+    ) -> List[FaceDetection]:
+        """Parses model outputs through the configured model adapter."""
+        return self.adapter.parse_outputs(
+            outputs=outputs,
+            scale=scale,
+            padding=padding,
+            orig_shape=orig_shape,
+            confidence_threshold=confidence_threshold,
+        )
 
     def __enter__(self) -> "FaceDetector":
         """Enables context manager usage (with FaceDetector(...) as detector:)."""

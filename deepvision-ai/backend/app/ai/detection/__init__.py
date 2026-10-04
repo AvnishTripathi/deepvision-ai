@@ -1,10 +1,11 @@
 """
 DeepVision AI — Face Detection Package
-Contains modular face detection interfaces, implementations, preprocessing, and result schemas.
+Contains modular face detection interfaces, implementations, adapters, preprocessing, and result schemas.
 """
 
 from app.ai.detection.base import BaseFaceDetector
 from app.ai.detection.detector import FaceDetector
+from app.ai.detection.adapter import BaseModelAdapter, SCRFDAdapter, BaselineAdapter
 from app.ai.detection.schemas import (
     BoundingBox,
     NormalizedBoundingBox,
@@ -29,6 +30,9 @@ from app.ai.detection.preprocessing import (
 __all__ = [
     "BaseFaceDetector",
     "FaceDetector",
+    "BaseModelAdapter",
+    "SCRFDAdapter",
+    "BaselineAdapter",
     "BoundingBox",
     "NormalizedBoundingBox",
     "LandmarkPoint",

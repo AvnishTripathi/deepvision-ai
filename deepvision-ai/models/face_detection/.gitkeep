@@ -1,2 +1,0 @@
-# models/face_detection
-# Stores ONNX / PyTorch models for face detection (e.g. SCRFD-500M, SCRFD-2.5G)
