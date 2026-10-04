@@ -65,11 +65,23 @@ class InferenceRuntime:
             providers,
         )
 
-        self.session = ort.InferenceSession(
-            target_path,
-            sess_options=session_options,
-            providers=providers,
-        )
+        try:
+            self.session = ort.InferenceSession(
+                target_path,
+                sess_options=session_options,
+                providers=providers,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Execution provider initialization failed with %s: %s. Falling back safely to CPUExecutionProvider.",
+                providers,
+                exc,
+            )
+            self.session = ort.InferenceSession(
+                target_path,
+                sess_options=session_options,
+                providers=["CPUExecutionProvider"],
+            )
 
         self.input_names = [inp.name for inp in self.session.get_inputs()]
         self.output_names = [out.name for out in self.session.get_outputs()]

@@ -80,7 +80,7 @@ class Settings(BaseSettings):
     def validate_ai_device(cls, v: Any) -> str:
         """Validates AI inference hardware target."""
         val = str(v).lower().strip()
-        allowed = {"auto", "cpu", "cuda", "mps"}
+        allowed = {"auto", "cpu", "gpu", "cuda", "mps", "directml"}
         return val if val in allowed else "auto"
 
     @field_validator("DEBUG", mode="before")

@@ -23,7 +23,9 @@ from app.ai.detection.schemas import (
 from app.ai.inference.runtime import InferenceRuntime
 from app.ai.inference.device import (
     resolve_device,
+    is_gpu_available,
     is_cuda_available,
+    get_available_gpu_providers,
     get_optimal_providers,
     get_recommended_thread_count,
     get_device_telemetry,
@@ -33,6 +35,7 @@ from app.ai.common.types import (
     ImageSource,
     BoundingBoxCoords,
     Point2D,
+    DeviceType,
     DeviceTarget,
     ModelArchitecture,
     FACIAL_LANDMARK_NAMES,
@@ -53,10 +56,13 @@ __all__ = [
     "FaceDetectionResult",
     "FrameInferenceResult",
     "PerformanceMetrics",
-    # Inference
+    # Inference & Hardware Abstraction
+    "DeviceType",
     "InferenceRuntime",
     "resolve_device",
+    "is_gpu_available",
     "is_cuda_available",
+    "get_available_gpu_providers",
     "get_optimal_providers",
     "get_recommended_thread_count",
     "get_device_telemetry",
@@ -70,4 +76,3 @@ __all__ = [
     "ModelArchitecture",
     "FACIAL_LANDMARK_NAMES",
 ]
-

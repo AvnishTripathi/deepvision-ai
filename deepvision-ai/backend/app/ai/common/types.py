@@ -15,8 +15,20 @@ ImageSource = Union[str, bytes, bytearray, np.ndarray, Image.Image]
 BoundingBoxCoords = Tuple[float, float, float, float]
 Point2D = Tuple[float, float]
 
-# Hardware targets
-DeviceTarget = Literal["auto", "cpu", "cuda", "mps", "openvino"]
+# Core hardware target enumeration
+class DeviceType(str, Enum):
+    """
+    Normalized hardware execution targets.
+    AUTO: Dynamically selects the best supported accelerator, falling back to CPU.
+    CPU: Universal, multi-threaded CPU execution.
+    GPU: Hardware-accelerated execution (CUDA, DirectML, ROCm, CoreML, etc.).
+    """
+    AUTO = "auto"
+    CPU = "cpu"
+    GPU = "gpu"
+
+# Hardware target literals and aliases accepted by the system
+DeviceTarget = Union[DeviceType, Literal["auto", "cpu", "gpu", "cuda", "mps", "openvino", "directml", "rocm"]]
 
 # Supported model family identifiers
 class ModelArchitecture(str, Enum):
@@ -34,4 +46,3 @@ FACIAL_LANDMARK_NAMES = (
     "mouth_left",
     "mouth_right",
 )
-

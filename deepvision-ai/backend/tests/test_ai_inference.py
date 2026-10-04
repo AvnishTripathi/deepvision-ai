@@ -29,8 +29,17 @@ from app.schemas.ai import (
     PerformanceMetrics,
 )
 from app.ai.detection.detector import FaceDetector
+from app.ai.common.types import DeviceType
 from app.ai.inference.runtime import InferenceRuntime
-from app.ai.inference.device import resolve_device, is_cuda_available, get_device_telemetry
+from app.ai.inference.device import (
+    resolve_device,
+    is_gpu_available,
+    is_cuda_available,
+    get_available_gpu_providers,
+    get_optimal_providers,
+    get_device_telemetry,
+)
+from app.core.config import Settings
 
 
 @pytest.fixture
@@ -173,7 +182,9 @@ def test_device_telemetry_and_resolution():
     """Verify hardware resolution logic and device telemetry."""
     telemetry = get_device_telemetry()
     assert "active_device" in telemetry
+    assert "gpu_available" in telemetry
     assert "cuda_available" in telemetry
+    assert "available_gpu_providers" in telemetry
     assert "cpu_cores" in telemetry
     assert telemetry["cpu_cores"] >= 1
     assert telemetry["recommended_threads"] >= 1
@@ -181,10 +192,82 @@ def test_device_telemetry_and_resolution():
 
     # Test device fallback
     assert resolve_device("cpu") == "cpu"
-    # When CUDA is not available, auto or cuda gracefully falls back to cpu
-    if not is_cuda_available():
-        assert resolve_device("cuda") == "cpu"
+    # When no GPU is available, auto or gpu gracefully falls back to cpu
+    if not is_gpu_available():
+        assert resolve_device("gpu") == "cpu"
         assert resolve_device("auto") == "cpu"
+
+
+def test_device_abstraction_auto_cpu_gpu():
+    """Verify AUTO, CPU, and GPU determinations via DeviceType and string inputs."""
+    # Explicit CPU
+    assert resolve_device(DeviceType.CPU) == "cpu"
+    assert resolve_device("cpu") == "cpu"
+    assert resolve_device("CPU") == "cpu"
+
+    # Explicit AUTO - selects GPU if available, else gracefully falls back to CPU
+    auto_res = resolve_device(DeviceType.AUTO)
+    assert auto_res in ("cpu", "gpu")
+    assert resolve_device("auto") == auto_res
+    assert resolve_device("AUTO") == auto_res
+
+    # Explicit GPU - selects GPU if available, else gracefully falls back to CPU without crashing
+    gpu_res = resolve_device(DeviceType.GPU)
+    assert gpu_res in ("cpu", "gpu")
+    assert resolve_device("gpu") == gpu_res
+    assert resolve_device("GPU") == gpu_res
+
+
+def test_device_resolution_with_simulated_gpu(monkeypatch):
+    """Verify that when a GPU runtime is detected, AUTO and GPU select 'gpu'."""
+    monkeypatch.setattr("app.ai.inference.device.is_gpu_available", lambda: True)
+    monkeypatch.setattr("app.ai.inference.device.get_available_gpu_providers", lambda: ["CUDAExecutionProvider"])
+
+    assert resolve_device(DeviceType.AUTO) == "gpu"
+    assert resolve_device("auto") == "gpu"
+    assert resolve_device(DeviceType.GPU) == "gpu"
+    assert resolve_device("gpu") == "gpu"
+    # CPU must still remain CPU even if GPU is available
+    assert resolve_device(DeviceType.CPU) == "cpu"
+    assert resolve_device("cpu") == "cpu"
+
+
+def test_device_resolution_fallback_never_crashes(monkeypatch):
+    """Verify that when NO GPU is detected, AUTO and GPU gracefully fall back to CPU."""
+    monkeypatch.setattr("app.ai.inference.device.is_gpu_available", lambda: False)
+    monkeypatch.setattr("app.ai.inference.device.get_available_gpu_providers", lambda: [])
+
+    assert resolve_device(DeviceType.AUTO) == "cpu"
+    assert resolve_device("auto") == "cpu"
+    assert resolve_device(DeviceType.GPU) == "cpu"
+    assert resolve_device("gpu") == "cpu"
+    assert resolve_device("unknown_device_string") == "cpu"
+
+
+def test_settings_ai_device_configuration():
+    """Verify Settings supports AI_DEVICE=auto, cpu, and gpu."""
+    s_auto = Settings(AI_DEVICE="auto")
+    assert s_auto.AI_DEVICE == "auto"
+
+    s_cpu = Settings(AI_DEVICE="cpu")
+    assert s_cpu.AI_DEVICE == "cpu"
+
+    s_gpu = Settings(AI_DEVICE="gpu")
+    assert s_gpu.AI_DEVICE == "gpu"
+
+    # Default should be auto
+    s_default = Settings()
+    assert s_default.AI_DEVICE == "auto"
+
+
+def test_optimal_providers_always_contain_cpu_fallback():
+    """Verify get_optimal_providers always includes CPUExecutionProvider."""
+    cpu_providers = get_optimal_providers("cpu")
+    assert "CPUExecutionProvider" in cpu_providers
+
+    gpu_providers = get_optimal_providers("gpu")
+    assert "CPUExecutionProvider" in gpu_providers
+    assert gpu_providers[-1] == "CPUExecutionProvider"
 
 
 def test_ai_engine_package_imports():
@@ -199,12 +282,17 @@ def test_ai_engine_package_imports():
 
     assert hasattr(ai, "FaceDetector")
     assert hasattr(ai, "InferenceRuntime")
+    assert hasattr(ai, "DeviceType")
     assert hasattr(ai, "BoundingBox")
     assert hasattr(detection, "FaceDetector")
     assert hasattr(detection, "BaseFaceDetector")
     assert hasattr(detection, "load_image")
     assert hasattr(inference, "InferenceRuntime")
+    assert hasattr(inference, "DeviceType")
     assert hasattr(inference, "resolve_device")
+    assert hasattr(inference, "is_gpu_available")
     assert hasattr(analysis, "analyze_face_quality")
     assert hasattr(common, "ModelArchitecture")
+    assert hasattr(common, "DeviceType")
+
 
