@@ -39,6 +39,20 @@ backend/uploads/
 *.mp4
 *.avi
 
+# Model Binaries & Heavy Weights (Never commit binaries)
+models/**/*.onnx
+models/**/*.pt
+models/**/*.pth
+models/**/*.bin
+models/**/*.safetensors
+models/**/*.engine
+*.onnx
+*.pt
+*.pth
+*.safetensors
+!models/**/.gitkeep
+!models/.gitkeep
+
 # Environment & Secrets (Never commit secrets)
 .env.local
 .env.production

@@ -65,13 +65,21 @@ yarn-error.log*
 # ------------------------------------------------------------------------------
 # Model Weights & Checkpoints (Heavy Binaries)
 # ------------------------------------------------------------------------------
-models/*.onnx
-models/*.pt
-models/*.pth
-models/*.bin
-models/*.h5
-models/*.safetensors
-models/*.engine
+models/**/*.onnx
+models/**/*.pt
+models/**/*.pth
+models/**/*.bin
+models/**/*.h5
+models/**/*.safetensors
+models/**/*.engine
+models/**/*.tflite
+*.onnx
+*.pt
+*.pth
+*.bin
+*.safetensors
+*.engine
+!models/**/.gitkeep
 !models/.gitkeep
 
 # ------------------------------------------------------------------------------

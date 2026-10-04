@@ -1,0 +1,2 @@
+# models/liveness
+# Stores anti-spoofing and liveness classification models (e.g. MiniFASNet)
