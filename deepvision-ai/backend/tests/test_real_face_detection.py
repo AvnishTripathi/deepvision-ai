@@ -296,3 +296,58 @@ def test_confidence_threshold_configured_via_settings_not_hardcoded(monkeypatch)
     )
     assert detector.confidence_threshold == 0.85
 
+
+# -------------------------------------------------------------------------
+# Test 9: Non-Maximum Suppression (NMS) Behavior & Configuration
+# -------------------------------------------------------------------------
+
+def test_nms_removes_duplicate_overlapping_detections_preserving_strongest():
+    """
+    Verify Non-Maximum Suppression algorithm:
+    1. Removes overlapping candidate boxes exceeding IoU threshold.
+    2. Preserves the proposal with the highest confidence score.
+    3. Retains non-overlapping distinct proposals.
+    """
+    from app.ai.detection.adapter import nms, compute_iou
+
+    # Three boxes: Box 0 (score 0.95), Box 1 (score 0.80, heavy overlap with 0), Box 2 (score 0.70, separate face)
+    boxes = np.array([
+        [100.0, 100.0, 200.0, 200.0],  # Box 0: Strong primary detection
+        [105.0, 105.0, 202.0, 205.0],  # Box 1: Duplicate proposal (IoU ~ 0.85 with Box 0)
+        [350.0, 100.0, 450.0, 200.0],  # Box 2: Distinct second face (IoU = 0.0)
+    ], dtype=np.float32)
+
+    scores = np.array([0.95, 0.80, 0.70], dtype=np.float32)
+
+    # IoU between Box 0 and Box 1 is high
+    iou_0_1 = compute_iou(boxes[0], boxes[1:2])[0]
+    assert iou_0_1 > 0.70
+
+    # Running NMS with IoU threshold 0.40
+    kept = nms(boxes, scores, threshold=0.40)
+
+    # Box 1 must be suppressed; only Box 0 (highest score) and Box 2 (separate) remain
+    assert kept == [0, 2]
+    assert 1 not in kept
+
+
+def test_nms_threshold_configured_via_settings_and_detector():
+    """
+    Verify AI_NMS_THRESHOLD is configurable via settings and correctly set on detector.
+    Ensures OpenCV-DNN applies C++ NMS directly without running duplicate NMS passes.
+    """
+    default_settings = Settings()
+    assert default_settings.AI_NMS_THRESHOLD == 0.30
+
+    model_path = default_settings.resolve_model_path()
+    detector = FaceDetector(
+        model_path=model_path,
+        device="cpu",
+        nms_threshold=0.45,
+    )
+    assert detector.nms_threshold == 0.45
+
+    # If OpenCV detector is active, verify setNMSThreshold was applied
+    if detector._cv2_detector is not None:
+        assert round(detector._cv2_detector.getNMSThreshold(), 2) == 0.45
+

@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     AI_MODEL_NAME: str = "scrfd_500m"
     AI_MODEL_VERSION: str = "1.0.0"
     AI_CONFIDENCE_THRESHOLD: float = 0.50
+    AI_NMS_THRESHOLD: float = 0.30
     AI_MAX_IMAGE_SIZE_MB: int = 10
     AI_MAX_IMAGE_DIMENSION: int = 4096
     AI_ENABLE_GPU: bool = False
@@ -97,6 +98,14 @@ class Settings(BaseSettings):
         """Validates confidence threshold is within valid probability bounds [0.0, 1.0]."""
         if not (0.0 <= v <= 1.0):
             raise ValueError(f"AI_CONFIDENCE_THRESHOLD must be between 0.0 and 1.0, got {v}")
+        return float(v)
+
+    @field_validator("AI_NMS_THRESHOLD")
+    @classmethod
+    def validate_nms_threshold(cls, v: float) -> float:
+        """Validates Non-Maximum Suppression IoU threshold is within [0.0, 1.0]."""
+        if not (0.0 <= v <= 1.0):
+            raise ValueError(f"AI_NMS_THRESHOLD must be between 0.0 and 1.0, got {v}")
         return float(v)
 
     @field_validator("AI_MAX_IMAGE_SIZE_MB")

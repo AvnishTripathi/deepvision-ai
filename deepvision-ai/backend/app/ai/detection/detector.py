@@ -48,6 +48,7 @@ class FaceDetector(BaseFaceDetector):
         preprocessor: Optional[ImagePreprocessor] = None,
         adapter: Optional[BaseModelAdapter] = None,
         confidence_threshold: Optional[float] = None,
+        nms_threshold: Optional[float] = None,
     ):
         from app.core.config import settings
 
@@ -58,6 +59,11 @@ class FaceDetector(BaseFaceDetector):
             float(confidence_threshold)
             if confidence_threshold is not None
             else float(settings.AI_CONFIDENCE_THRESHOLD)
+        )
+        self.nms_threshold = (
+            float(nms_threshold)
+            if nms_threshold is not None
+            else float(getattr(settings, "AI_NMS_THRESHOLD", 0.30))
         )
         self.preprocessor = preprocessor or ImagePreprocessor(
             ImagePreprocessingConfig(target_size=target_size)
@@ -99,7 +105,7 @@ class FaceDetector(BaseFaceDetector):
                     "",
                     self.target_size,
                     score_threshold=float(self.confidence_threshold),
-                    nms_threshold=0.3,
+                    nms_threshold=float(self.nms_threshold),
                     top_k=5000,
                 )
                 logger.info("Face detector loaded YuNet model via OpenCV FaceDetectorYN from %s", target_path)
@@ -142,6 +148,7 @@ class FaceDetector(BaseFaceDetector):
         self,
         image_input: ImageSource,
         confidence_threshold: Optional[float] = None,
+        nms_threshold: Optional[float] = None,
         **kwargs: Any,
     ) -> FrameInferenceResult:
         """
@@ -154,6 +161,11 @@ class FaceDetector(BaseFaceDetector):
             float(confidence_threshold)
             if confidence_threshold is not None
             else float(self.confidence_threshold)
+        )
+        effective_nms = (
+            float(nms_threshold)
+            if nms_threshold is not None
+            else float(self.nms_threshold)
         )
 
         # 1. Ingestion & Preprocessing
@@ -170,7 +182,11 @@ class FaceDetector(BaseFaceDetector):
             start_inf = time.perf_counter()
             self._cv2_detector.setInputSize((orig_w, orig_h))
             self._cv2_detector.setScoreThreshold(threshold)
+            if hasattr(self._cv2_detector, "setNMSThreshold"):
+                self._cv2_detector.setNMSThreshold(effective_nms)
 
+            # Note: OpenCV FaceDetectorYN performs C++ SIMD NMS internally using effective_nms.
+            # We do NOT run a second redundant pass of NMS in Python.
             img_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
             _, raw_faces = self._cv2_detector.detect(img_bgr)
             inf_time_ms = round((time.perf_counter() - start_inf) * 1000, 2)
@@ -239,7 +255,7 @@ class FaceDetector(BaseFaceDetector):
 
             start_post = time.perf_counter()
             faces = self._parse_onnx_outputs(
-                outputs, image_rgb, prep_res.scale, prep_res.padding, (orig_h, orig_w), threshold
+                outputs, image_rgb, prep_res.scale, prep_res.padding, (orig_h, orig_w), threshold, effective_nms
             )
             post_time_ms = round((time.perf_counter() - start_post) * 1000, 2)
             model_name = self.engine.model_name
@@ -349,14 +365,16 @@ class FaceDetector(BaseFaceDetector):
         padding: Tuple[int, int],
         orig_shape: Tuple[int, int],
         confidence_threshold: float,
+        nms_threshold: float = 0.4,
     ) -> List[FaceDetection]:
-        """Parses model outputs through the configured model adapter."""
+        """Parses model outputs through the configured model adapter with Non-Maximum Suppression."""
         return self.adapter.parse_outputs(
             outputs=outputs,
             scale=scale,
             padding=padding,
             orig_shape=orig_shape,
             confidence_threshold=confidence_threshold,
+            nms_threshold=nms_threshold,
         )
 
     def __enter__(self) -> "FaceDetector":
