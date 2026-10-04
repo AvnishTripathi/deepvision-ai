@@ -213,9 +213,13 @@ async def test_real_face_detection_api_endpoint(sample_portrait_bytes):
         assert data["image"]["height"] == 400
         assert data["processing_time_ms"] > 0.0
 
+        assert data["face_count"] == len(data["faces"])
+        assert data["face_count"] >= 1
+
         # Faces array
         assert len(data["faces"]) >= 1
         first_face = data["faces"][0]
+        assert first_face["face_id"] is None
         assert first_face["confidence"] >= 0.5
         assert first_face["bbox"]["x1"] > 0
         assert first_face["bbox"]["y1"] > 0

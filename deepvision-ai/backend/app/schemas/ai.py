@@ -316,7 +316,8 @@ class AIDetectionResponse(BaseModel):
       "device": "CPU",
       "image": {"width": 1920, "height": 1080},
       "processing_time_ms": 42.5,
-      "faces": [{"bbox": {"x1": 100, "y1": 120, "x2": 300, "y2": 350}, "confidence": 0.96}]
+      "face_count": 2,
+      "faces": [{"face_id": null, "bbox": {"x1": 100, "y1": 120, "x2": 300, "y2": 350}, "confidence": 0.96, "landmarks": null}]
     }
     """
     success: bool = Field(True, description="Detection execution status")
@@ -324,10 +325,19 @@ class AIDetectionResponse(BaseModel):
     device: str = Field(..., description="Inference device used (e.g. CPU, GPU)")
     image: ImageDimensions = Field(..., description="Dimensions of the analyzed image")
     processing_time_ms: float = Field(..., description="Total pipeline latency in milliseconds")
+    face_count: int = Field(0, description="Total number of detected faces")
     faces: List[DetectedFaceItem] = Field(default_factory=list, description="List of detected faces")
     request_id: Optional[str] = Field(default=None, description="Unique request trace identifier")
 
     model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_face_count(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "face_count" not in data and "faces" in data and isinstance(data["faces"], list):
+                data["face_count"] = len(data["faces"])
+        return data
 
 
 class AIDetectionErrorResponse(BaseModel):

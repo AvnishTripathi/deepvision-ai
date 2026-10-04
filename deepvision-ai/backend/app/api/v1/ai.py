@@ -174,6 +174,7 @@ async def detect_faces(
         device=str(detection_result.device).upper(),
         image=ImageDimensions(width=w, height=h),
         processing_time_ms=round(detection_result.processing_time_ms, 2),
+        face_count=len(face_items),
         faces=face_items,
         request_id=request_id,
     )

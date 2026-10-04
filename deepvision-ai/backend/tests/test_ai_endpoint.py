@@ -247,6 +247,7 @@ async def test_detect_endpoint_success_with_operational_detector(valid_jpeg_byte
             assert data["device"] == "CPU"
             assert data["image"] == {"width": 640, "height": 480}
             assert data["processing_time_ms"] == 42.5
+            assert data["face_count"] == 1
 
             # Verify faces array
             assert len(data["faces"]) == 1
@@ -296,6 +297,7 @@ async def test_detect_endpoint_zero_faces_never_fabricated(valid_png_bytes):
             assert response.status_code == 200
             data = response.json()
             assert data["success"] is True
+            assert data["face_count"] == 0
             assert data["faces"] == []  # Completely empty, no fake faces
             assert data["image"] == {"width": 320, "height": 240}
     finally:
