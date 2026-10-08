@@ -7,6 +7,7 @@ and AI engine runtime status telemetry with hardened image safety controls.
 import uuid
 import logging
 from typing import Optional
+import numpy as np
 from fastapi import APIRouter, Request, UploadFile, File, Query, Depends
 
 from app.core.config import settings
@@ -28,6 +29,8 @@ from app.schemas.ai import (
     InternalInferenceErrorResponse,
     FaceBoundingBox,
     DetectedFaceItem,
+    FaceDetectionQuality,
+    DetectedFacePose,
     ImageDimensions,
     PerformanceBreakdown,
 )
@@ -35,6 +38,15 @@ from app.ai.analysis.schemas import AIAnalysisResponse
 from app.ai.analysis.landmarks import (
     validate_and_clip_landmarks,
     validate_and_clip_landmarks_list,
+)
+from app.ai.analysis import (
+    compute_face_size_metrics,
+    compute_clarity_metrics,
+    compute_illumination_metrics,
+    calculate_face_quality_score,
+    classify_face_quality,
+    calculate_face_visibility,
+    estimate_head_pose,
 )
 from app.services.ai_service import AIService, get_ai_service
 
@@ -227,22 +239,109 @@ async def detect_faces(
             model_name=settings.AI_MODEL_NAME,
         )
 
-    # 6. Format Real Structured Output
-    face_items = [
-        DetectedFaceItem(
-            face_id=d.face_id,
-            bbox=FaceBoundingBox(
-                x1=round(d.bbox.x1, 2),
-                y1=round(d.bbox.y1, 2),
-                x2=round(d.bbox.x2, 2),
-                y2=round(d.bbox.y2, 2),
-            ),
-            confidence=round(d.confidence, 4),
-            landmarks=validate_and_clip_landmarks_list(d.landmarks, w, h) if d.landmarks else None,
-            landmarks_dict=validate_and_clip_landmarks(d.landmarks, w, h) if d.landmarks else None,
+    # 6. Format Real Structured Output with Quality & Pose Analytics (Step 14)
+    face_items = []
+    for d in detection_result.detections:
+        lms_list = validate_and_clip_landmarks_list(d.landmarks, w, h) if d.landmarks else []
+        lms_dict = validate_and_clip_landmarks(d.landmarks, w, h) if d.landmarks else {}
+
+        # Safely extract face crop for measurable quality analysis
+        x1_int = max(0, int(round(d.bbox.x1)))
+        y1_int = max(0, int(round(d.bbox.y1)))
+        x2_int = min(w, int(round(d.bbox.x2)))
+        y2_int = min(h, int(round(d.bbox.y2)))
+        face_crop = (
+            image_np[y1_int:y2_int, x1_int:x2_int]
+            if x2_int > x1_int and y2_int > y1_int
+            else np.empty((0, 0, 3), dtype=np.uint8)
         )
-        for d in detection_result.detections
-    ]
+
+        # 1. Size & scale metrics
+        size_metrics = compute_face_size_metrics(d.bbox, (h, w))
+        face_area_ratio = round(size_metrics.face_area_ratio, 4)
+
+        # 2. Clarity & blur metrics
+        clarity = compute_clarity_metrics(face_crop)
+        blur_score = round(clarity.sharpness, 1)
+        blur_status = clarity.blur_status.value
+
+        # 3. Illumination & contrast metrics
+        illum = compute_illumination_metrics(face_crop)
+        brightness_score = round(illum.brightness, 1)
+        brightness_status = illum.brightness_status.value
+        contrast_score = round(illum.contrast, 1)
+        if illum.contrast < 16.0:
+            contrast_status = "low_contrast"
+        elif illum.contrast > 75.0:
+            contrast_status = "high_contrast"
+        else:
+            contrast_status = "acceptable"
+
+        # 4. Overall quality score (0 - 100) & classification
+        q_score_100, factors, grade = calculate_face_quality_score(
+            face_crop_rgb=face_crop,
+            bbox=d.bbox,
+            image_shape=(h, w),
+            clarity_metrics=clarity,
+            illumination_metrics=illum,
+            size_metrics=size_metrics,
+            landmarks=lms_list,
+            detection_confidence=d.confidence,
+        )
+        q_classification = classify_face_quality(q_score_100).value
+
+        # 5. Face visibility assessment
+        vis_assessment = calculate_face_visibility(
+            face_crop_rgb=face_crop,
+            bbox=d.bbox,
+            image_shape=(h, w),
+            size_metrics=size_metrics,
+            clarity_metrics=clarity,
+            illumination_metrics=illum,
+            landmarks=lms_list,
+            detection_confidence=d.confidence,
+        )
+        visibility_val = vis_assessment.visibility.value
+
+        quality_obj = FaceDetectionQuality(
+            score=round(q_score_100, 1),
+            classification=q_classification,
+            blur_score=blur_score,
+            blur_status=blur_status,
+            brightness_score=brightness_score,
+            brightness_status=brightness_status,
+            contrast_score=contrast_score,
+            contrast_status=contrast_status,
+            face_area_ratio=face_area_ratio,
+            visibility=visibility_val,
+            overall_quality=round(q_score_100 / 100.0, 3),
+            sharpness=blur_score,
+            brightness=brightness_score,
+            contrast=contrast_score,
+            is_usable=q_score_100 >= 30.0,
+        )
+
+        # 6. 3D Head pose orientation (Step 12)
+        pose_obj = estimate_head_pose(lms_list, (h, w)) if lms_list and len(lms_list) >= 5 else None
+        pose_dict = pose_obj.to_angles_dict() if pose_obj else None
+
+        face_items.append(
+            DetectedFaceItem(
+                face_id=d.face_id,
+                bbox=FaceBoundingBox(
+                    x1=round(d.bbox.x1, 2),
+                    y1=round(d.bbox.y1, 2),
+                    x2=round(d.bbox.x2, 2),
+                    y2=round(d.bbox.y2, 2),
+                ),
+                confidence=round(d.confidence, 4),
+                landmarks=lms_dict if lms_dict else None,
+                landmarks_list=lms_list if lms_list else None,
+                landmarks_dict=lms_dict if lms_dict else None,
+                quality=quality_obj,
+                pose=pose_dict,
+            )
+        )
 
     # 7. Granular Performance Breakdown Telemetry (Step 3, Task 12)
     timing_breakdown = PerformanceBreakdown(

@@ -379,18 +379,100 @@ class FaceBoundingBox(BaseModel):
         return FaceBoundingBox(x1=round(cx1, 2), y1=round(cy1, 2), x2=round(cx2, 2), y2=round(cy2, 2))
 
 
+class FaceDetectionQuality(BaseModel):
+    """
+    Measurable quality analytics for detected face (Step 14).
+    Extends detection response with deterministic visual properties.
+    """
+    score: float = Field(..., ge=0.0, le=100.0, description="Overall face quality score (0 - 100)")
+    classification: str = Field(..., description="Quality classification (excellent, good, acceptable, poor)")
+    blur_score: float = Field(..., description="Laplacian variance sharpness measurement")
+    blur_status: str = Field(..., description="Blur status (sharp, slightly_blurred, blurry)")
+    brightness_score: float = Field(..., description="Mean luminance brightness (0 - 255)")
+    brightness_status: str = Field(..., description="Brightness status (too_dark, acceptable, too_bright)")
+    contrast_score: float = Field(..., description="Luminance standard deviation contrast")
+    contrast_status: str = Field(..., description="Contrast status (acceptable, low_contrast, high_contrast)")
+    face_area_ratio: float = Field(..., ge=0.0, le=1.0, description="Face bbox area relative to entire image canvas")
+    visibility: str = Field(..., description="Visibility rating (excellent, good, fair, poor)")
+
+    # Backward compatibility aliases/fields for legacy callers
+    overall_quality: Optional[float] = Field(default=None, description="Normalized quality score (0.0 - 1.0)")
+    sharpness: Optional[float] = Field(default=None, description="Alias for blur_score")
+    brightness: Optional[float] = Field(default=None, description="Alias for brightness_score")
+    contrast: Optional[float] = Field(default=None, description="Alias for contrast_score")
+    is_usable: Optional[bool] = Field(default=True, description="Usability flag")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_compatibility_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "score" in data and ("overall_quality" not in data or data["overall_quality"] is None):
+                data["overall_quality"] = round(float(data["score"]) / 100.0, 3)
+            if "blur_score" in data and ("sharpness" not in data or data["sharpness"] is None):
+                data["sharpness"] = data["blur_score"]
+            if "brightness_score" in data and ("brightness" not in data or data["brightness"] is None):
+                data["brightness"] = data["brightness_score"]
+            if "contrast_score" in data and ("contrast" not in data or data["contrast"] is None):
+                data["contrast"] = data["contrast_score"]
+        return data
+
+
+class DetectedFacePose(BaseModel):
+    """
+    3D Head pose orientation for detected face in degrees (Step 12 & Step 14).
+    """
+    yaw: float = Field(..., description="Yaw rotation angle in degrees")
+    pitch: float = Field(..., description="Pitch rotation angle in degrees")
+    roll: float = Field(..., description="Roll rotation angle in degrees")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class DetectedFaceItem(BaseModel):
     """Individual face detection record in development detection response."""
     face_id: Optional[Union[str, int]] = Field(default=None, description="Face identifier (null for initial image detection)")
     bbox: FaceBoundingBox = Field(..., description="Face bounding box")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Detection confidence score")
-    landmarks: Optional[List[LandmarkPoint]] = Field(default=None, description="Optional 5-point facial landmarks")
+    landmarks: Optional[Union[Dict[str, LandmarkCoordinate], List[LandmarkPoint]]] = Field(
+        default=None,
+        description="Structured facial landmarks map (left_eye, right_eye, nose, etc.) or list",
+    )
+    landmarks_list: Optional[List[LandmarkPoint]] = Field(
+        default=None,
+        description="Optional list representation of 5-point facial landmarks",
+    )
     landmarks_dict: Optional[Dict[str, LandmarkCoordinate]] = Field(
         default=None,
         description="Structured facial landmarks map (e.g. left_eye, right_eye, nose)",
     )
+    quality: Optional[Union[FaceDetectionQuality, FaceQualityScore]] = Field(
+        default=None,
+        description="Detailed face quality diagnostics (Step 14)",
+    )
+    pose: Optional[Union[DetectedFacePose, Dict[str, float]]] = Field(
+        default=None,
+        description="3D Head pose angles (yaw, pitch, roll) (Step 14)",
+    )
 
     model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_landmarks_and_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            raw_lm = data.get("landmarks")
+            if isinstance(raw_lm, list):
+                if "landmarks_list" not in data or data["landmarks_list"] is None:
+                    data["landmarks_list"] = raw_lm
+                if "landmarks_dict" not in data or data["landmarks_dict"] is None:
+                    from app.ai.analysis.landmarks import landmarks_to_dict
+                    data["landmarks_dict"] = landmarks_to_dict(raw_lm)
+            elif isinstance(raw_lm, dict):
+                if "landmarks_dict" not in data or data["landmarks_dict"] is None:
+                    data["landmarks_dict"] = raw_lm
+        return data
 
 
 class ImageDimensions(BaseModel):

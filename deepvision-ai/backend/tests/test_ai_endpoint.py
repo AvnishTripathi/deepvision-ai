@@ -373,3 +373,129 @@ async def test_detect_endpoint_timing_telemetry_breakdown(valid_jpeg_bytes):
     finally:
         app.dependency_overrides.clear()
 
+
+# -------------------------------------------------------------------------
+# Test 10: Step 14 — Extended Detection Response Schema & Backward Compatibility
+# -------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_detect_endpoint_extended_response_structure_step14(valid_jpeg_bytes):
+    """
+    Step 14: Verifies the extended detection response structure:
+    - success, model, device, image {width, height}, processing_time_ms, face_count, faces
+    - faces[].face_id, bbox {x1, y1, x2, y2}, confidence
+    - faces[].landmarks {left_eye: {x, y}, right_eye: {x, y}, nose: {x, y}, ...}
+    - faces[].quality {score, classification, blur_score, blur_status, brightness_score,
+                       brightness_status, contrast_score, contrast_status, face_area_ratio, visibility}
+    - faces[].pose {yaw, pitch, roll}
+    """
+    from app.schemas.ai import LandmarkPoint
+
+    mock_detector = MagicMock(spec=BaseFaceDetector)
+    mock_detector.is_loaded = True
+
+    canonical_landmarks = [
+        LandmarkPoint(name="right_eye", x=180.0, y=200.0, confidence=0.98),
+        LandmarkPoint(name="left_eye", x=270.0, y=200.0, confidence=0.98),
+        LandmarkPoint(name="nose_tip", x=225.0, y=240.0, confidence=0.97),
+        LandmarkPoint(name="mouth_right", x=195.0, y=290.0, confidence=0.96),
+        LandmarkPoint(name="mouth_left", x=255.0, y=290.0, confidence=0.96),
+    ]
+
+    mock_detector.detect.return_value = FrameInferenceResult(
+        image_width=640,
+        image_height=480,
+        preprocessing_time_ms=1.5,
+        inference_time_ms=25.0,
+        postprocessing_time_ms=2.0,
+        total_time_ms=28.5,
+        processing_time_ms=28.5,
+        device="cpu",
+        model_name="scrfd_500m",
+        detections=[
+            FaceDetection(
+                bbox=BoundingBox(x1=100.0, y1=120.0, x2=350.0, y2=380.0),
+                confidence=0.97,
+                landmarks=canonical_landmarks,
+            )
+        ],
+    )
+
+    operational_service = AIService(detector=mock_detector)
+    app.dependency_overrides[get_ai_service] = lambda: operational_service
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            files = {"file": ("portrait.jpg", valid_jpeg_bytes, "image/jpeg")}
+            response = await client.post("/api/v1/ai/detect", files=files)
+
+            assert response.status_code == 200
+            data = response.json()
+
+            # 1. Top-Level Envelope
+            assert data["success"] is True
+            assert data["model"] == "scrfd_500m"
+            assert data["device"] == "CPU"
+            assert data["image"] == {"width": 640, "height": 480}
+            assert isinstance(data["processing_time_ms"], float)
+            assert data["face_count"] == 1
+            assert len(data["faces"]) == 1
+
+            # 2. Face Record
+            face = data["faces"][0]
+            assert face["face_id"] is None
+            assert face["confidence"] == 0.97
+            assert face["bbox"] == {
+                "x1": 100.0,
+                "y1": 120.0,
+                "x2": 350.0,
+                "y2": 380.0,
+            }
+
+            # 3. Structured Landmarks Map
+            assert isinstance(face["landmarks"], dict)
+            assert "left_eye" in face["landmarks"]
+            assert "right_eye" in face["landmarks"]
+            assert "nose" in face["landmarks"]
+            assert "x" in face["landmarks"]["left_eye"]
+            assert "y" in face["landmarks"]["left_eye"]
+            assert face["landmarks"]["left_eye"]["x"] == 270.0
+            assert face["landmarks"]["left_eye"]["y"] == 200.0
+
+            # 4. Extended Quality Diagnostics
+            quality = face["quality"]
+            assert isinstance(quality, dict)
+            assert "score" in quality
+            assert 0.0 <= quality["score"] <= 100.0
+            assert quality["classification"] in ("excellent", "good", "acceptable", "poor")
+            assert isinstance(quality["blur_score"], float)
+            assert quality["blur_status"] in ("sharp", "slightly_blurred", "blurry")
+            assert isinstance(quality["brightness_score"], float)
+            assert quality["brightness_status"] in ("too_dark", "acceptable", "too_bright")
+            assert isinstance(quality["contrast_score"], float)
+            assert quality["contrast_status"] in ("acceptable", "low_contrast", "high_contrast")
+            assert 0.0 <= quality["face_area_ratio"] <= 1.0
+            assert quality["visibility"] in ("excellent", "good", "fair", "poor")
+
+            # 5. Backward Compatibility Quality Fields
+            assert "overall_quality" in quality
+            assert "sharpness" in quality
+            assert "brightness" in quality
+            assert "contrast" in quality
+            assert "is_usable" in quality
+            assert quality["overall_quality"] == round(quality["score"] / 100.0, 3)
+
+            # 6. 3D Head Pose Orientation
+            assert face["pose"] is not None
+            assert isinstance(face["pose"], dict)
+            assert "yaw" in face["pose"]
+            assert "pitch" in face["pose"]
+            assert "roll" in face["pose"]
+            assert isinstance(face["pose"]["yaw"], float)
+            assert isinstance(face["pose"]["pitch"], float)
+            assert isinstance(face["pose"]["roll"], float)
+    finally:
+        app.dependency_overrides.clear()
+
+

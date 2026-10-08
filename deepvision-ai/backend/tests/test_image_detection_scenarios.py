@@ -81,10 +81,15 @@ async def test_scenario_a_one_face():
         # Validate facial landmarks
         assert first_face["landmarks"] is not None
         assert len(first_face["landmarks"]) == 5
-        for lm in first_face["landmarks"]:
-            assert "name" in lm
-            assert lm["x"] >= 0.0 and lm["x"] <= data["image"]["width"]
-            assert lm["y"] >= 0.0 and lm["y"] <= data["image"]["height"]
+        if isinstance(first_face["landmarks"], dict):
+            for name, lm in first_face["landmarks"].items():
+                assert lm["x"] >= 0.0 and lm["x"] <= data["image"]["width"]
+                assert lm["y"] >= 0.0 and lm["y"] <= data["image"]["height"]
+        else:
+            for lm in first_face["landmarks"]:
+                assert "name" in lm
+                assert lm["x"] >= 0.0 and lm["x"] <= data["image"]["width"]
+                assert lm["y"] >= 0.0 and lm["y"] <= data["image"]["height"]
 
 
 # -------------------------------------------------------------------------
