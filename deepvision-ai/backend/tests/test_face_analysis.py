@@ -19,6 +19,7 @@ from app.ai.detection.schemas import FaceDetection
 from app.ai.analysis.schemas import (
     PoseCategory,
     BlurCategory,
+    BlurStatus,
     ExposureCategory,
     SizeCategory,
     QualityGrade,
@@ -49,6 +50,7 @@ from app.ai.analysis.pose import (
 from app.ai.analysis.metrics import (
     compute_face_size_metrics,
     calculate_face_size,
+    estimate_face_blur,
     compute_clarity_metrics,
     compute_illumination_metrics,
 )
@@ -349,27 +351,59 @@ class TestHeadPoseEstimation:
 class TestClarityMetrics:
     def test_sharp_crop_metrics(self):
         crop = create_synthetic_face_crop(width=100, height=100, blur=False)
-        clarity = compute_clarity_metrics(crop, min_sharpness_threshold=50.0)
+        clarity = estimate_face_blur(crop)
 
         assert isinstance(clarity, ClarityMetrics)
         assert clarity.sharpness > 50.0
-        assert clarity.blur_score > 0.3
+        assert clarity.blur_score > 0.15
+        assert clarity.blur_status in (BlurStatus.SHARP, BlurStatus.SLIGHTLY_BLURRED)
         assert clarity.blur_category in (BlurCategory.SHARP, BlurCategory.SLIGHTLY_BLURRED)
 
     def test_blurred_crop_metrics(self):
         crop = create_synthetic_face_crop(width=100, height=100, blur=True)
-        clarity = compute_clarity_metrics(crop, min_sharpness_threshold=50.0)
+        clarity = estimate_face_blur(crop)
 
         assert clarity.sharpness < 40.0
-        assert clarity.blur_score < 0.30
+        assert clarity.blur_score < 0.20
+        assert clarity.blur_status == BlurStatus.BLURRY
         assert clarity.blur_category in (BlurCategory.BLURRED, BlurCategory.VERY_BLURRED)
 
     def test_empty_or_degenerate_crop(self):
         empty_crop = np.empty((0, 0, 3), dtype=np.uint8)
-        clarity = compute_clarity_metrics(empty_crop)
+        clarity = estimate_face_blur(empty_crop)
         assert clarity.sharpness == 0.0
         assert clarity.blur_score == 0.0
+        assert clarity.blur_status == BlurStatus.BLURRY
         assert clarity.blur_category == BlurCategory.VERY_BLURRED
+
+    def test_configurable_blur_thresholds(self):
+        """Verifies that configurable sharp and slightly_blurred thresholds dynamically alter status."""
+        crop = create_synthetic_face_crop(width=100, height=100, blur=False)
+        sharpness_val = estimate_face_blur(crop).sharpness
+
+        # Case 1: Ultra-high sharp_threshold (e.g. 5000) forces it to slightly_blurred or blurry
+        high_thresh_clarity = estimate_face_blur(
+            crop,
+            sharp_threshold=sharpness_val + 500.0,
+            slightly_blurred_threshold=sharpness_val - 10.0,
+        )
+        assert high_thresh_clarity.blur_status == BlurStatus.SLIGHTLY_BLURRED
+
+        # Case 2: Very high slightly_blurred_threshold forces it to blurry
+        blurry_thresh_clarity = estimate_face_blur(
+            crop,
+            sharp_threshold=sharpness_val + 1000.0,
+            slightly_blurred_threshold=sharpness_val + 500.0,
+        )
+        assert blurry_thresh_clarity.blur_status == BlurStatus.BLURRY
+
+        # Case 3: Very low sharp_threshold (e.g. 10.0) forces even slightly blurry crop to sharp
+        low_thresh_clarity = estimate_face_blur(
+            crop,
+            sharp_threshold=10.0,
+            slightly_blurred_threshold=5.0,
+        )
+        assert low_thresh_clarity.blur_status == BlurStatus.SHARP
 
 
 # -----------------------------------------------------------------------------

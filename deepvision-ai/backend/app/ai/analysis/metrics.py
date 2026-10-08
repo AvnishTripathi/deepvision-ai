@@ -7,12 +7,14 @@ from typing import Tuple, Optional
 import numpy as np
 import cv2
 
+from app.core.config import settings
 from app.schemas.ai import BoundingBox
 from app.ai.analysis.schemas import (
     FaceSizeMetrics,
     SizeCategory,
     ClarityMetrics,
     BlurCategory,
+    BlurStatus,
     IlluminationMetrics,
     ExposureCategory,
 )
@@ -84,20 +86,52 @@ calculate_face_size = compute_face_size_metrics
 # 2. Clarity & Blur Detection
 # -----------------------------------------------------------------------------
 
-def compute_clarity_metrics(
+def estimate_face_blur(
     face_crop_rgb: np.ndarray,
-    min_sharpness_threshold: float = 50.0,
+    sharp_threshold: Optional[float] = None,
+    slightly_blurred_threshold: Optional[float] = None,
 ) -> ClarityMetrics:
     """
-    Measures facial sharpness and motion/defocus blur using Laplacian variance.
+    Measures facial sharpness and estimates motion/defocus blur using Laplacian variance.
 
-    Laplacian variance represents the second spatial derivative of illumination;
-    higher values indicate crisp, high-frequency facial features (eyes, lashes, pores).
+    Mathematical formulation:
+        L(x, y) = ∇² I(x, y) = ∂²I/∂x² + ∂²I/∂y²
+        sharpness = Var(L) = (1/N) * Σ (L(x, y) - μ_L)²
+
+    Threshold assumptions:
+        - sharpness >= sharp_threshold (default 100.0): In-focus high-frequency edge definition ('sharp').
+        - slightly_blurred_threshold <= sharpness < sharp_threshold (default 50.0 to 100.0): Minor defocus/motion ('slightly_blurred').
+        - sharpness < slightly_blurred_threshold: Lacks critical edge definition ('blurry').
+
+    CRITICAL NOTE ON INTERPRETATION:
+        Laplacian variance is an edge-frequency measurement, NOT a universal quality measurement.
+        Smooth makeup, flat lighting, or naturally soft youth skin reduce Laplacian variance without
+        loss of biometric fidelity, whereas ISO noise or sensor grain can artificially inflate sharpness.
+
+    Args:
+        face_crop_rgb: Cropped face ROI in RGB numpy array format.
+        sharp_threshold: Optional threshold for 'sharp' status (defaults to settings.AI_BLUR_SHARP_THRESHOLD or 100.0).
+        slightly_blurred_threshold: Optional threshold for 'slightly_blurred' status (defaults to settings.AI_BLUR_SLIGHTLY_BLURRED_THRESHOLD or 50.0).
+
+    Returns:
+        ClarityMetrics with blur_score, blur_status ('sharp', 'slightly_blurred', 'blurry'), and raw sharpness.
     """
+    effective_sharp_thresh = (
+        sharp_threshold
+        if sharp_threshold is not None
+        else getattr(settings, "AI_BLUR_SHARP_THRESHOLD", 100.0)
+    )
+    effective_slight_thresh = (
+        slightly_blurred_threshold
+        if slightly_blurred_threshold is not None
+        else getattr(settings, "AI_BLUR_SLIGHTLY_BLURRED_THRESHOLD", 50.0)
+    )
+
     if face_crop_rgb.size == 0 or face_crop_rgb.shape[0] < 4 or face_crop_rgb.shape[1] < 4:
         return ClarityMetrics(
             sharpness=0.0,
             blur_score=0.0,
+            blur_status=BlurStatus.BLURRY,
             blur_category=BlurCategory.VERY_BLURRED,
         )
 
@@ -107,23 +141,37 @@ def compute_clarity_metrics(
     sharpness = round(variance, 2)
 
     # Normalize sharpness to a continuous score [0.0, 1.0]
-    # Curve maps: < 15 -> 0.0, 50 -> ~0.4, 100 -> ~0.7, 200+ -> ~1.0
     blur_score = min(1.0, max(0.0, (sharpness - 15.0) / 185.0))
     blur_score = round(blur_score, 3)
 
-    if sharpness >= 100.0:
+    if sharpness >= effective_sharp_thresh:
+        status = BlurStatus.SHARP
         category = BlurCategory.SHARP
-    elif sharpness >= min_sharpness_threshold:
+    elif sharpness >= effective_slight_thresh:
+        status = BlurStatus.SLIGHTLY_BLURRED
         category = BlurCategory.SLIGHTLY_BLURRED
-    elif sharpness >= 20.0:
-        category = BlurCategory.BLURRED
     else:
-        category = BlurCategory.VERY_BLURRED
+        status = BlurStatus.BLURRY
+        category = BlurCategory.BLURRED if sharpness >= 20.0 else BlurCategory.VERY_BLURRED
 
     return ClarityMetrics(
         sharpness=sharpness,
         blur_score=blur_score,
+        blur_status=status,
         blur_category=category,
+    )
+
+
+def compute_clarity_metrics(
+    face_crop_rgb: np.ndarray,
+    min_sharpness_threshold: float = 50.0,
+    sharp_threshold: float = 100.0,
+) -> ClarityMetrics:
+    """Backward-compatible wrapper for estimate_face_blur."""
+    return estimate_face_blur(
+        face_crop_rgb=face_crop_rgb,
+        sharp_threshold=sharp_threshold,
+        slightly_blurred_threshold=min_sharpness_threshold,
     )
 
 

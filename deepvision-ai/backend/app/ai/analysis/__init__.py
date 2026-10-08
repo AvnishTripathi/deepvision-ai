@@ -6,6 +6,7 @@ Exports schemas, landmark processing, 3D head pose estimation, metrics, and qual
 from app.ai.analysis.schemas import (
     PoseCategory,
     BlurCategory,
+    BlurStatus,
     ExposureCategory,
     SizeCategory,
     QualityGrade,
@@ -38,6 +39,7 @@ from app.ai.analysis.pose import (
 from app.ai.analysis.metrics import (
     compute_face_size_metrics,
     calculate_face_size,
+    estimate_face_blur,
     compute_clarity_metrics,
     compute_illumination_metrics,
 )
@@ -55,6 +57,7 @@ __all__ = [
     # Schemas & Enums
     "PoseCategory",
     "BlurCategory",
+    "BlurStatus",
     "ExposureCategory",
     "SizeCategory",
     "QualityGrade",
@@ -84,6 +87,7 @@ __all__ = [
     # Metrics
     "compute_face_size_metrics",
     "calculate_face_size",
+    "estimate_face_blur",
     "compute_clarity_metrics",
     "compute_illumination_metrics",
     # Quality Analysis & Legacy

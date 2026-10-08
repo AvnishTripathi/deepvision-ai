@@ -34,6 +34,13 @@ class BlurCategory(str, Enum):
     VERY_BLURRED = "VERY_BLURRED"
 
 
+class BlurStatus(str, Enum):
+    """Qualitative classification of face sharpness/blur status (Step 7)."""
+    SHARP = "sharp"
+    SLIGHTLY_BLURRED = "slightly_blurred"
+    BLURRY = "blurry"
+
+
 class ExposureCategory(str, Enum):
     """Categorical classification of facial illumination and exposure."""
     OPTIMAL = "OPTIMAL"
@@ -173,18 +180,52 @@ class IlluminationMetrics(BaseModel):
 
 
 class ClarityMetrics(BaseModel):
-    """Sharpness, blur detection, and frequency clarity measurements."""
+    """
+    Sharpness and blur estimation diagnostics based on Laplacian variance.
+    Note: Blur score reflects high-frequency spatial variation and focus;
+    it is not a universal quality measurement (factors such as smooth skin,
+    diffuse lighting, or cosmetic makeup can lower variance without loss of fidelity).
+    """
     sharpness: float = Field(
         ..., ge=0.0, description="Laplacian variance sharpness measurement"
     )
     blur_score: float = Field(
         ..., ge=0.0, le=1.0, description="Normalized clarity score (1.0 = sharp, 0.0 = heavily blurred)"
     )
+    blur_status: BlurStatus = Field(
+        default=BlurStatus.SHARP,
+        description="Qualitative blur status classification ('sharp', 'slightly_blurred', or 'blurry')",
+    )
     blur_category: BlurCategory = Field(
-        ..., description="Qualitative blur and sharpness classification"
+        default=BlurCategory.SHARP,
+        description="Qualitative blur and sharpness classification (SHARP, SLIGHTLY_BLURRED, BLURRED, VERY_BLURRED)",
     )
 
     model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_blur_status_and_category(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Sync blur_status -> blur_category if blur_category omitted
+            if "blur_status" in data and "blur_category" not in data:
+                raw_st = str(data["blur_status"]).lower()
+                if raw_st == "sharp":
+                    data["blur_category"] = BlurCategory.SHARP
+                elif raw_st == "slightly_blurred":
+                    data["blur_category"] = BlurCategory.SLIGHTLY_BLURRED
+                elif raw_st in ("blurry", "blurred"):
+                    data["blur_category"] = BlurCategory.BLURRED
+            # Sync blur_category -> blur_status if blur_status omitted
+            elif "blur_category" in data and "blur_status" not in data:
+                raw_cat = str(data["blur_category"]).upper()
+                if raw_cat == "SHARP":
+                    data["blur_status"] = BlurStatus.SHARP
+                elif raw_cat == "SLIGHTLY_BLURRED":
+                    data["blur_status"] = BlurStatus.SLIGHTLY_BLURRED
+                else:
+                    data["blur_status"] = BlurStatus.BLURRY
+        return data
 
 
 class ComprehensiveFaceQuality(BaseModel):

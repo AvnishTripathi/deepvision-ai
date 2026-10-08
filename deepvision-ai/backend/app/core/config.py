@@ -45,6 +45,10 @@ class Settings(BaseSettings):
     AI_ENABLE_GPU: bool = False
     AI_MODEL_PATH: Optional[str] = None
 
+    # Face Blur & Sharpness Thresholds (Step 7)
+    AI_BLUR_SHARP_THRESHOLD: float = 100.0
+    AI_BLUR_SLIGHTLY_BLURRED_THRESHOLD: float = 50.0
+
     # Storage Paths & Limits
     STORAGE_DIR: str = "./storage"
     MODELS_DIR: str = "./models"
