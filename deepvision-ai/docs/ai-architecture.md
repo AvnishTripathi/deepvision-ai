@@ -18,100 +18,75 @@ DeepVision AI follows strict separation of concerns to ensure the AI subsystem i
 
 ## 2. End-to-End Inference Flow
 
-Every detection request travels through a deterministic 7-stage processing pipeline:
+Every face detection request executes through a deterministic, hardened 9-stage processing flow:
 
 ```text
-       ┌────────────────────────┐
-       │     Incoming Image     │  (Multipart Upload / Bytes)
-       └───────────┬────────────┘
-                   │
-                   ▼
-       ┌────────────────────────┐
-       │   1. File Validation   │  (MIME type, size limit, dimensions)
-       └───────────┬────────────┘
-                   │
-                   ▼
-       ┌────────────────────────┐
-       │    2. Preprocessing    │  (RGB decode, letterbox, NCHW tensor)
-       └───────────┬────────────┘
-                   │
-                   ▼
-       ┌────────────────────────┐
-       │  3. Inference Runtime  │  (ONNX Runtime session, CPU/GPU)
-       └───────────┬────────────┘
-                   │
-                   ▼
-       ┌────────────────────────┐
-       │    4. Face Detector    │  (Anchor decoding, strides, NMS, landmarks)
-       └───────────┬────────────┘
-                   │
-                   ▼
-       ┌────────────────────────┐
-       │ 5. Structured Results  │  (BoundingBox, FaceDetection, telemetry)
-       └───────────┬────────────┘
-                   │
-                   ▼
-       ┌────────────────────────┐
-       │    6. API Response     │  (Sanitized JSON, X-Request-ID, HTTP status)
-       └────────────────────────┘
+Image Upload
+     ↓
+Validation
+     ↓
+Preprocessing
+     ↓
+AI Inference
+     ↓
+Face Detection
+     ↓
+Confidence Filtering
+     ↓
+NMS / Postprocessing
+     ↓
+Bounding Box Validation
+     ↓
+Structured JSON Result
 ```
 
-### Stage 1: Validation
-* **File Type Check**: Ensures content is a supported image format (`image/jpeg`, `image/png`, `image/webp`, `image/bmp`). Rejects text, executables, or PDFs with `400 Bad Request` (`unsupported_media_type`).
-* **Payload Size Check**: Enforces memory safety against denial-of-service attempts. Ingests bytes in-memory and validates that payload size $\le \text{AI\_MAX\_IMAGE\_SIZE\_MB}$ (default 10 MB). Rejects oversized payloads with `413 Content Too Large` (`payload_too_large`).
-* **Integrity Check**: Rejects empty `0-byte` buffers and corrupt streams that fail image decoding with `400 Bad Request` (`empty_file`, `corrupted_image`).
+### Stage 1: Image Upload
+* Ingests image data via HTTP `POST /api/v1/ai/detect` using `multipart/form-data` with form field `file`.
+* Operates strictly in volatile memory (`io.BytesIO`) using stream chunking. No uploaded images are permanently stored on disk.
 
-### Stage 2: Preprocessing
-* **Color Standardization**: Converts BGR, Grayscale, or RGBA inputs into standardized uint8 RGB NumPy arrays.
-* **Aspect-Ratio Letterboxing**: Resizes the image to the model input dimensions (e.g. $640 \times 640$) while preserving the native aspect ratio through symmetric padding. Prevents aspect distortion that harms detection accuracy.
-* **Tensor Normalization**: Normalizes pixel values to $[0.0, 1.0]$ float32 and permutes dimensions to the standard NCHW tensor layout $(1, 3, 640, 640)$.
+### Stage 2: Validation
+* **MIME & Extension Whitelist**: Verifies declared MIME types (`image/jpeg`, `image/png`, `image/webp`, `image/bmp`) and extensions (`.jpg`, `.jpeg`, `.png`, `.webp`, `.bmp`).
+* **Binary Magic Numbers**: Inspects leading binary bytes to prevent file extension spoofing, polyglot files, and executable injection (`MZ`, `ELF`, `#!`, `<?php`).
+* **Streaming Byte Cap**: Enforces hard file size limits (default 10 MB via `settings.AI_MAX_IMAGE_SIZE_MB`). Aborts immediately with `413 Payload Too Large`.
+* **Structural Verification & Decompression Bomb Protection**: Verifies container tables with Pillow and enforces maximum dimensions ($4096 \times 4096\text{px}$ via `settings.AI_MAX_IMAGE_DIMENSION`) and pixel caps (100M pixels) to prevent pixel floods and memory exhaustion.
+* **Filename Sanitization**: Cleans untrusted client-supplied filenames, stripping directory traversal sequences (`../`, `..\`) and null bytes.
 
-### Stage 3: Inference Runtime
-* **Provider Orchestration**: Manages the underlying ONNX Runtime session using `CPUExecutionProvider` or accelerated GPU providers (`CUDAExecutionProvider`, `TensorrtExecutionProvider`, `DmlExecutionProvider`).
-* **Thread Optimization**: Allocates worker threads according to host CPU core topology to maximize throughput while avoiding thread contention.
-* **Session Warmup**: Executes graph optimization passes on startup to avoid cold-start latency on initial requests.
+### Stage 3: Preprocessing
+* **Color Space Standardization**: Dynamically converts single-channel Grayscale, 4-channel RGBA (alpha blended over black), and BGR images into standardized 3-channel RGB NumPy uint8 arrays.
+* **Aspect-Ratio Letterboxing**: Resizes the image to model input canvas ($640 \times 640\text{px}$) with symmetric padding, strictly preserving the original aspect ratio to avoid geometric distortion.
 
-### Stage 4: Face Detector & Architecture Adapter
-* **Forward-Pass Evaluation**: Evaluates input tensors through the neural network.
-* **Multi-Scale Anchor Decoding**: For SCRFD, processes outputs across strides 8, 16, and 32 to detect faces ranging from small far-field faces ($< 16\text{px}$) to large foreground portraits.
-* **Non-Maximum Suppression (NMS)**: Eliminates redundant overlapping bounding boxes based on Intersection-over-Union (IoU) thresholds.
-* **Landmark Alignment**: Decodes 5 facial keypoint landmarks (left eye, right eye, nose tip, left mouth corner, right mouth corner).
-* **Unletterbox Coordinate Inversion**: Inverts preprocessing letterbox scaling and padding, translating box and landmark coordinates back into original image pixel space.
+### Stage 4: AI Inference
+* Evaluates input tensors using the active detection runtime:
+  - **OpenCV FaceDetectorYN / YuNet C++ SIMD backend** for ultra-fast CPU inference (~15–25ms).
+  - **ONNX Runtime session** supporting hardware execution providers (`CPUExecutionProvider`, `CUDAExecutionProvider`, `DmlExecutionProvider`).
+* Automatic, zero-crash hardware fallback to CPU if GPU drivers are unavailable.
 
-### Stage 5: Structured Detection Result
-* Normalizes detection objects into strongly-typed Pydantic v2 schemas:
-  - `BoundingBox`: Absolute coordinates (`x1`, `y1`, `x2`, `y2`), dimensions, and area.
-  - `NormalizedBoundingBox`: Relative coordinates in $[0.0, 1.0]$ image space.
-  - `FaceDetection`: Identity, bounding box, confidence score, landmarks, and face quality metrics.
-  - `FrameInferenceResult`: Latency breakdown (`preprocessing_time_ms`, `inference_time_ms`, `postprocessing_time_ms`, `total_time_ms`), device used, and model name.
+### Stage 5: Face Detection
+* Multi-scale feature extraction across strides 8, 16, and 32 to detect faces across diverse scales (small far-field faces $< 20\text{px}$ up to close-up portraits).
+* Raw proposal extraction: candidate bounding boxes, classification scores, and 5 facial landmark keypoints (right eye, left eye, nose tip, right mouth corner, left mouth corner).
 
-### Stage 6: API Response & Structured Telemetry
-* The endpoint formats the result into a standardized JSON response:
-  ```json
-  {
-    "success": true,
-    "model": "scrfd_500m",
-    "device": "CPU",
-    "image": {
-      "width": 1920,
-      "height": 1080
-    },
-    "processing_time_ms": 28.5,
-    "faces": [
-      {
-        "bbox": {
-          "x1": 100.0,
-          "y1": 120.0,
-          "x2": 300.0,
-          "y2": 350.0
-        },
-        "confidence": 0.96
-      }
-    ],
-    "request_id": "8f3b2d1e-4c7a-4a2b-9e3d-1a2b3c4d5e6f"
-  }
-  ```
-* Emits a privacy-preserving structured telemetry log record (capturing model, device, resolution, face count, latency, and request ID).
+### Stage 6: Confidence Filtering
+* Gating proposals against configurable detection confidence threshold:
+  - Global default configured via `AI_CONFIDENCE_THRESHOLD` (default: `0.6`).
+  - Dynamically overridable on a per-request basis via query parameter `?confidence_threshold=0.75`.
+* Proposals failing to meet the threshold are pruned prior to coordinate transformation.
+
+### Stage 7: NMS / Postprocessing
+* **Non-Maximum Suppression (NMS)**: Eliminates duplicate overlapping proposals using Intersection-over-Union (IoU) overlap thresholds (`AI_NMS_THRESHOLD`, default: `0.30`), preserving only the proposal with the strongest confidence score.
+* **Coordinate Inversion (Unletterbox)**: Reverses preprocessing letterbox scaling and padding, translating normalized/resized coordinates back into the original image's native pixel dimensions.
+
+### Stage 8: Bounding Box Validation
+* Validates geometric integrity of each bounding box against original image bounds:
+  - Ensures $x_1 \ge 0$, $y_1 \ge 0$, $x_2 \le \text{image\_width}$, and $y_2 \le \text{image\_height}$.
+  - Ensures $x_2 > x_1$ and $y_2 > y_1$.
+* Clips bounding boxes that partially overflow image boundaries (`clip_to_bounds`).
+* Safely discards degenerate or out-of-bounds candidate detections.
+
+### Stage 9: Structured JSON Result
+* Formats detection outputs into strongly-typed Pydantic v2 schemas (`AIDetectionResponse`):
+  - Returns `model`, `device`, `image` dimensions, `face_count`, `faces` array (with `bbox`, `confidence`, `landmarks`), and granular `timing` breakdown.
+  - Generates request tracing header `X-Request-ID`.
+  - Records lightweight, privacy-preserving structured telemetry logs (zero raw image bytes logged).
 
 ---
 
@@ -125,25 +100,31 @@ backend/app/ai/
 ├── detection/               # Face detection domain
 │   ├── __init__.py
 │   ├── base.py              # BaseFaceDetector abstract interface
-│   ├── detector.py          # FaceDetector implementation
+│   ├── detector.py          # FaceDetector implementation (YuNet & ONNX)
 │   ├── schemas.py           # Re-exported detection schemas
 │   ├── preprocessing.py     # ImagePreprocessor & letterboxing
-│   └── adapter.py           # SCRFDAdapter & BaselineAdapter
+│   └── adapter.py           # Model adapters & coordinate inversion
 │
-├── tracking/                # Multi-face trajectory tracking (Step 3)
+├── tracking/                # Multi-face trajectory tracking (Future Step)
 │   └── __init__.py
 │
 ├── analysis/                # Facial analytics & quality evaluation
 │   ├── __init__.py
 │   └── quality.py           # Laplacian sharpness, brightness, contrast
 │
-├── recognition/             # Facial embedding & verification (Step 4)
-│   └── __init__.py
+├── recognition/             # Facial embedding & verification contract (Future Step)
+│   ├── __init__.py
+│   └── base.py              # BaseIdentityVerifier interface
+│
+├── visualization/           # Development & offline visualization tools
+│   ├── __init__.py
+│   └── annotator.py         # DetectionVisualizer (BBoxes, confidence, landmarks)
 │
 ├── inference/               # Hardware runtime abstraction
 │   ├── __init__.py
 │   ├── device.py            # Device resolution (AUTO, CPU, GPU fallback)
-│   └── runtime.py           # ONNX Runtime session manager
+│   ├── runtime.py           # ONNX Runtime session manager
+│   └── onnx_engine.py       # Inference engine session
 │
 └── common/                  # Shared CV types and aliases
     ├── __init__.py
@@ -169,3 +150,36 @@ All AI subsystem exceptions inherit from `AIException` and map to HTTP status co
 | `DeviceNotAvailableError`| `503` | Device unavailable notice | Detailed driver diagnostics |
 
 Clients never receive internal Python tracebacks, memory pointers, or local filesystem paths.
+
+---
+
+## 5. Current Capabilities (End of Step 3)
+
+At the completion of Step 3, the DeepVision AI platform provides:
+
+* **Real Image Face Detection**: Real, production neural network inference using YuNet ONNX weights (`face_detection_yunet_2023mar.onnx`).
+* **Multiple Faces**: Accurately localizes and detects multiple human faces across varying scales, orientations, and crowded scenes in a single forward pass.
+* **Confidence Scores**: Real, un-fabricated floating-point probability scores ($0.0 \dots 1.0$) computed from model sigmoid activations.
+* **Bounding Boxes**: Absolute, pixel-accurate bounding box coordinates ($x_1, y_1, x_2, y_2$) mapped directly to the original uploaded image dimensions.
+* **Configurable Threshold**: Globally configurable detection sensitivity via `AI_CONFIDENCE_THRESHOLD` (environment variable / settings) and dynamic per-request overrides via API query parameter `confidence_threshold`.
+* **CPU/GPU Runtime**: Resilient hardware abstraction executing reliably on CPU with SIMD optimizations, with automatic GPU enablement (CUDA, DirectML) where drivers and runtime execution providers exist.
+* **Inference Timing**: Real measured latency profiling returned in the response JSON and logged to telemetry, including granular breakdown:
+  - `preprocessing_time_ms` (stream decoding, safety validation, color conversion)
+  - `inference_time_ms` (neural network forward pass)
+  - `postprocessing_time_ms` (NMS, coordinate inversion, bounding box clipping)
+  - `total_processing_time_ms` (end-to-end pipeline latency)
+* **API Access**: Standardized, production-ready REST API endpoint `POST /api/v1/ai/detect` documented with OpenAPI / Swagger (`/docs`, `/redoc`), input validation, and sanitized error schemas.
+* **Development Visualization**: Offline developer utility (`scripts/visualize_detections.py` and `app/ai/visualization/annotator.py`) to annotate images with bounding boxes, confidence score tags, and 5-point facial landmarks without modifying the original input.
+
+---
+
+## 6. What is NOT Implemented Yet
+
+To preserve architectural boundaries and development discipline, the following features are explicitly **NOT** implemented in Step 3:
+
+* ❌ **Identity Recognition / Biometric Matching**: No facial embeddings extraction, identity database matching, or biometric identification is active. All detections return `face_id: null`.
+* ❌ **Multi-Frame Video Tracking**: No temporal trajectory tracking across video frames (e.g. ByteTrack, SORT) or track ID continuity.
+* ❌ **Webcam Streaming WebSocket**: Real-time live webcam frame-by-frame streaming over WebSocket is not yet connected to the deep face detection engine.
+* ❌ **Liveness & Anti-Spoofing Detection**: No 2D/3D print attack, screen replay, or silicon mask anti-spoofing verification models.
+* ❌ **Facial Attribute Analysis**: No estimation of age, gender, emotion, head pose angles (yaw, pitch, roll), or facial landmarks beyond the core 5 keypoints.
+

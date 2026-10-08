@@ -59,38 +59,61 @@ API docs → **http://localhost:8000/docs**
 
 ```
 DeepFaceGuard/
-├── backend/                 # FastAPI Python server
-│   ├── main.py              # App entry point
-│   ├── config.py            # Settings (env vars)
-│   ├── database.py          # SQLAlchemy setup
-│   ├── models.py            # DB models
-│   ├── schemas.py           # Pydantic schemas
-│   ├── auth.py              # JWT authentication
-│   ├── routers/
-│   │   ├── auth_router.py   # /api/v1/auth endpoints
-│   │   ├── detect_router.py # /api/v1/detect endpoints + WebSocket
-│   │   └── history_router.py# /api/v1/history endpoints
-│   └── requirements.txt
+├── deepvision-ai/           # Production DeepVision AI microservice
+│   ├── backend/             # FastAPI computer vision server
+│   ├── models/              # Neural network weights (YuNet, ONNX)
+│   ├── docs/                # Architecture & model selection docs
+│   └── scripts/             # Development visualization utilities
 │
-├── ml_engine/               # AI/ML deepfake detection
-│   ├── detector.py          # Main orchestrator
-│   ├── face_detector.py     # MTCNN face detection
-│   ├── deepfake_classifier.py # Multi-signal classifier
-│   ├── heatmap_generator.py # Visualization
-│   └── model_manager.py     # Model loading & caching
-│
-├── frontend/                # React 18 + TypeScript
-│   ├── src/
-│   │   ├── pages/           # All pages
-│   │   ├── components/      # Reusable components
-│   │   ├── api/client.ts    # API + WebSocket client
-│   │   └── store/           # Zustand state
-│   └── package.json
-│
-├── docker-compose.yml       # Full stack Docker
-├── setup.bat                # Windows setup script
-└── .env                     # Configuration
+├── backend/                 # Platform API & database server
+├── frontend/                # React 18 + TypeScript + Vite UI
+├── ml_engine/               # Multi-signal deepfake classification
+└── docker-compose.yml       # Full stack Docker
 ```
+
+---
+
+## 🧠 DeepVision AI Face Detection Pipeline
+
+Every detection request executes through a deterministic 9-stage pipeline:
+
+```text
+Image Upload
+     ↓
+Validation
+     ↓
+Preprocessing
+     ↓
+AI Inference
+     ↓
+Face Detection
+     ↓
+Confidence Filtering
+     ↓
+NMS / Postprocessing
+     ↓
+Bounding Box Validation
+     ↓
+Structured JSON Result
+```
+
+### 🌟 Current Capabilities (End of Step 3)
+* **Real Image Face Detection**: Real, production neural network inference using YuNet ONNX weights (`face_detection_yunet_2023mar.onnx`).
+* **Multiple Faces**: Accurately localizes and detects multiple human faces across varying scales, orientations, and crowded scenes in a single forward pass.
+* **Confidence Scores**: Authentic floating-point probability scores ($0.0 \dots 1.0$) computed directly from model activations.
+* **Bounding Boxes**: Absolute, pixel-accurate bounding box coordinates ($x_1, y_1, x_2, y_2$) mapped directly to native image dimensions.
+* **Configurable Threshold**: Globally configurable detection sensitivity via `AI_CONFIDENCE_THRESHOLD` (default `0.6`) and per-request dynamic overrides via query parameter `?confidence_threshold=`.
+* **CPU/GPU Runtime Where Supported**: Resilient hardware abstraction executing reliably on CPU with SIMD optimizations, with automatic GPU enablement (CUDA, DirectML) where drivers and runtime execution providers exist.
+* **Inference Timing**: Real measured latency profiling returned in API responses and logged, including granular breakdown (`preprocessing_time_ms`, `inference_time_ms`, `postprocessing_time_ms`, `total_processing_time_ms`).
+* **API Access**: Hardened REST API endpoint `POST /api/v1/ai/detect` documented via OpenAPI / Swagger UI (`/docs`), input validation, and sanitized error schemas (`400`, `413`, `500`, `503`).
+* **Development Visualization**: Offline developer utility (`scripts/visualize_detections.py` and `app/ai/visualization/annotator.py`) to annotate images with bounding boxes, confidence score badges, and 5-point facial landmarks without modifying the original input.
+
+### ⚠️ What is NOT Implemented Yet
+* ❌ **Identity Recognition / Biometric Matching**: No facial embeddings extraction, identity database matching, or biometric identification is active (`face_id: null`).
+* ❌ **Multi-Frame Video Tracking**: No temporal trajectory tracking across video frames (e.g. ByteTrack, SORT) or track ID continuity.
+* ❌ **Live Webcam Streaming WebSocket**: Real-time live webcam frame-by-frame streaming over WebSocket is not yet connected to the deep face detection model.
+* ❌ **Liveness & Anti-Spoofing Detection**: No 2D/3D print attack, screen replay, or silicon mask anti-spoofing verification models.
+* ❌ **Facial Attribute Analysis**: No estimation of age, gender, emotion, head pose angles (yaw, pitch, roll), or facial landmarks beyond the core 5 keypoints.
 
 ---
 
