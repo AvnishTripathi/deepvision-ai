@@ -25,6 +25,7 @@ from app.ai.analysis.schemas import (
     FaceVisibility,
     VisibilityStatus,
     FaceVisibilityAssessment,
+    FaceQualityFactors,
     SizeCategory,
     QualityGrade,
     FacialLandmarkMetrics,
@@ -36,6 +37,7 @@ from app.ai.analysis.schemas import (
     StructuredFaceAnalysis,
     AIAnalysisResponse,
 )
+
 
 from app.ai.analysis.landmarks import (
     LandmarkProcessor,
@@ -67,10 +69,12 @@ from app.ai.analysis.quality import (
     compute_brightness_and_contrast,
     analyze_face_quality,
     evaluate_quality_grade,
+    calculate_face_quality_score,
     analyze_face_comprehensive,
     FaceAnalyzer,
     FaceQualityAnalyzer,
 )
+
 from app.services.ai_service import get_ai_service
 
 
@@ -562,11 +566,72 @@ class TestFaceSizeMetrics:
 
 class TestComprehensiveQualityScoring:
     def test_grade_boundaries(self):
+        # Normalized 0.0 - 1.0 scale
         assert evaluate_quality_grade(0.92) == QualityGrade.EXCELLENT
         assert evaluate_quality_grade(0.78) == QualityGrade.GOOD
         assert evaluate_quality_grade(0.60) == QualityGrade.FAIR
         assert evaluate_quality_grade(0.40) == QualityGrade.POOR
         assert evaluate_quality_grade(0.15) == QualityGrade.UNUSABLE
+        # 0 - 100 scale
+        assert evaluate_quality_grade(92.0) == QualityGrade.EXCELLENT
+        assert evaluate_quality_grade(78.0) == QualityGrade.GOOD
+        assert evaluate_quality_grade(60.0) == QualityGrade.FAIR
+        assert evaluate_quality_grade(40.0) == QualityGrade.POOR
+        assert evaluate_quality_grade(15.0) == QualityGrade.UNUSABLE
+
+    def test_calculate_face_quality_score_factors(self):
+        crop = create_synthetic_face_crop(width=140, height=140, blur=False)
+        bbox = BoundingBox(x1=80, y1=80, x2=220, y2=220)
+        landmarks = create_canonical_landmarks(offset_x=80.0, offset_y=80.0)
+
+        score, factors, grade = calculate_face_quality_score(
+            face_crop_rgb=crop,
+            bbox=bbox,
+            image_shape=(720, 1280),
+            landmarks=landmarks,
+            detection_confidence=0.98,
+        )
+
+        assert isinstance(score, float)
+        assert 0.0 <= score <= 100.0
+        assert score >= 70.0  # Sharp, medium-sized, canonical landmarks
+        assert isinstance(factors, FaceQualityFactors)
+        assert 0.0 <= factors.sharpness <= 100.0
+        assert 0.0 <= factors.brightness <= 100.0
+        assert 0.0 <= factors.contrast <= 100.0
+        assert 0.0 <= factors.size <= 100.0
+        assert 0.0 <= factors.landmark <= 100.0
+        assert grade in (QualityGrade.EXCELLENT, QualityGrade.GOOD)
+
+    def test_quality_score_severe_defect_gating(self):
+        # Case 1: Pitch black face (luminance 10)
+        dark_crop = np.full((100, 100, 3), 10, dtype=np.uint8)
+        bbox = BoundingBox(x1=50, y1=50, x2=150, y2=150)
+        landmarks = create_canonical_landmarks(offset_x=50.0, offset_y=50.0)
+
+        dark_score, dark_factors, dark_grade = calculate_face_quality_score(
+            face_crop_rgb=dark_crop,
+            bbox=bbox,
+            image_shape=(720, 1280),
+            landmarks=landmarks,
+        )
+        assert dark_score < 40.0
+        assert dark_factors.brightness <= 30.0
+        assert dark_grade in (QualityGrade.POOR, QualityGrade.UNUSABLE)
+
+        # Case 2: Tiny face (16x16 px)
+        tiny_bbox = BoundingBox(x1=10, y1=10, x2=26, y2=26)
+        tiny_crop = np.full((16, 16, 3), 128, dtype=np.uint8)
+
+        tiny_score, tiny_factors, tiny_grade = calculate_face_quality_score(
+            face_crop_rgb=tiny_crop,
+            bbox=tiny_bbox,
+            image_shape=(1080, 1920),
+            landmarks=None,
+        )
+        assert tiny_score < 40.0
+        assert tiny_factors.size <= 25.0
+        assert tiny_grade in (QualityGrade.POOR, QualityGrade.UNUSABLE)
 
     def test_analyze_face_comprehensive_sharp_face(self):
         crop = create_synthetic_face_crop(width=120, height=120, blur=False)
@@ -585,11 +650,26 @@ class TestComprehensiveQualityScoring:
         assert isinstance(analysis, StructuredFaceAnalysis)
         assert analysis.face_id == "face_0"
         assert analysis.confidence == 0.98
+        assert 0.0 <= analysis.quality_score <= 100.0
+        assert analysis.quality_score == analysis.quality.quality_score
+        assert analysis.quality.overall_quality == round(analysis.quality_score / 100.0, 3)
+        assert analysis.quality.factors is not None
         assert analysis.landmark_metrics is not None
         assert analysis.pose is not None
         assert analysis.size.is_sufficient_size
         assert analysis.quality.is_usable
         assert analysis.quality.grade in (QualityGrade.EXCELLENT, QualityGrade.GOOD, QualityGrade.FAIR)
+
+        # Check serialization contains quality_score and factors
+        dumped = analysis.model_dump()
+        assert "quality_score" in dumped
+        assert 0.0 <= dumped["quality_score"] <= 100.0
+        assert "factors" in dumped["quality"]
+        assert "sharpness" in dumped["quality"]["factors"]
+        assert "brightness" in dumped["quality"]["factors"]
+        assert "contrast" in dumped["quality"]["factors"]
+        assert "size" in dumped["quality"]["factors"]
+        assert "landmark" in dumped["quality"]["factors"]
 
     def test_analyze_face_comprehensive_blurred_face_unusable(self):
         crop = create_synthetic_face_crop(width=120, height=120, blur=True)
@@ -607,6 +687,8 @@ class TestComprehensiveQualityScoring:
 
         assert not analysis.quality.is_usable
         assert analysis.clarity.blur_category in (BlurCategory.BLURRED, BlurCategory.VERY_BLURRED)
+        assert analysis.quality_score < 60.0
+
 
 
 # -----------------------------------------------------------------------------

@@ -4,9 +4,10 @@ Combines sharpness, illumination, resolution, and 3D head pose into explainable 
 Maintains full backward compatibility with legacy FaceQualityScore callers.
 """
 
-from typing import Tuple, Optional, List, Union, Any
+from typing import Tuple, Optional, List, Union, Dict, Any
 import numpy as np
 import cv2
+
 
 from app.schemas.ai import (
     BoundingBox,
@@ -22,9 +23,13 @@ from app.ai.analysis.schemas import (
     FaceSizeMetrics,
     IlluminationMetrics,
     ClarityMetrics,
+    BlurStatus,
+    BrightnessStatus,
     FaceVisibility,
     FaceVisibilityAssessment,
+    FaceQualityFactors,
 )
+
 from app.ai.analysis.landmarks import (
     compute_landmark_metrics,
     validate_and_clip_landmarks_list,
@@ -116,17 +121,188 @@ def analyze_face_quality(
 # -----------------------------------------------------------------------------
 
 def evaluate_quality_grade(overall_score: float) -> QualityGrade:
-    """Maps composite quality score to qualitative grade."""
-    if overall_score >= 0.85:
+    """Maps composite quality score (0.0 to 1.0 or 0 to 100) to qualitative grade."""
+    # Support both normalized (0.0 - 1.0) and 0 - 100 scales
+    score = overall_score if overall_score <= 1.0 else (overall_score / 100.0)
+    if score >= 0.85:
         return QualityGrade.EXCELLENT
-    elif overall_score >= 0.70:
+    elif score >= 0.70:
         return QualityGrade.GOOD
-    elif overall_score >= 0.50:
+    elif score >= 0.50:
         return QualityGrade.FAIR
-    elif overall_score >= 0.30:
+    elif score >= 0.30:
         return QualityGrade.POOR
     else:
         return QualityGrade.UNUSABLE
+
+
+def calculate_face_quality_score(
+    face_crop_rgb: Optional[np.ndarray] = None,
+    bbox: Optional[BoundingBox] = None,
+    image_shape: Optional[Tuple[int, int]] = None,
+    clarity_metrics: Optional[ClarityMetrics] = None,
+    illumination_metrics: Optional[IlluminationMetrics] = None,
+    size_metrics: Optional[FaceSizeMetrics] = None,
+    landmark_metrics: Optional[FacialLandmarkMetrics] = None,
+    landmarks: Optional[Union[List[Any], Dict[str, Any]]] = None,
+    detection_confidence: float = 0.95,
+) -> Tuple[float, FaceQualityFactors, QualityGrade]:
+    """
+    Transparent Face Quality Scoring Engine (Step 11).
+    Calculates an explainable 0 - 100 quality score based on measurable physical/geometric optics.
+
+    Factors combined:
+        1. Sharpness (25%): Laplacian variance edge-frequency definition.
+        2. Brightness (20%): ITU-R BT.601 photopic luminance exposure against sensor dynamic limits.
+        3. Contrast (15%): Standard deviation of luminance dynamic range.
+        4. Face Size (20%): Pixel resolution & scale sufficiency relative to biometric minimums.
+        5. Landmark Quality (20%): Structural availability, bilateral facial symmetry, and localization certainty.
+
+    Formula:
+        Score_base = 0.25 * Sharpness + 0.20 * Brightness + 0.15 * Contrast + 0.20 * Size + 0.20 * Landmark
+
+    Bottleneck Gating:
+        Critical defects (e.g. pitch-black darkness, severe motion blur, or sub-32px scale)
+        cap the maximum composite score to avoid artificially elevating unusable faces.
+
+    Returns:
+        Tuple of (quality_score_0_to_100, FaceQualityFactors, QualityGrade).
+    """
+    # 1. Sharpness Factor (0 - 100)
+    if clarity_metrics is None and face_crop_rgb is not None and face_crop_rgb.size > 0:
+        try:
+            clarity_metrics = compute_clarity_metrics(face_crop_rgb)
+        except Exception:
+            clarity_metrics = None
+
+    if clarity_metrics is not None:
+        f_sharpness = float(clarity_metrics.blur_score) * 100.0
+        if clarity_metrics.blur_status == BlurStatus.BLURRY:
+            f_sharpness = min(f_sharpness, 35.0)
+        elif clarity_metrics.blur_status == BlurStatus.SLIGHTLY_BLURRED:
+            f_sharpness = min(74.0, max(40.0, f_sharpness))
+    else:
+        f_sharpness = 70.0
+    f_sharpness = round(min(100.0, max(0.0, f_sharpness)), 1)
+
+    # 2. Brightness Factor (0 - 100)
+    if illumination_metrics is None and face_crop_rgb is not None and face_crop_rgb.size > 0:
+        try:
+            illumination_metrics = compute_illumination_metrics(face_crop_rgb)
+        except Exception:
+            illumination_metrics = None
+
+    if illumination_metrics is not None:
+        f_brightness = float(illumination_metrics.brightness_score) * 100.0
+        if illumination_metrics.brightness_status in (BrightnessStatus.TOO_DARK, BrightnessStatus.TOO_BRIGHT):
+            f_brightness = min(f_brightness, 50.0)
+    else:
+        f_brightness = 70.0
+    f_brightness = round(min(100.0, max(0.0, f_brightness)), 1)
+
+    # 3. Contrast Factor (0 - 100)
+    if illumination_metrics is not None:
+        std_c = float(illumination_metrics.contrast)
+    elif face_crop_rgb is not None and face_crop_rgb.size > 0:
+        std_c = float(compute_brightness_and_contrast(face_crop_rgb)[1])
+    else:
+        std_c = 35.0
+
+    if std_c < 15.0:
+        f_contrast = max(0.0, (std_c / 15.0) * 50.0)
+    elif std_c < 40.0:
+        f_contrast = 50.0 + ((std_c - 15.0) / 25.0) * 50.0
+    elif std_c <= 65.0:
+        f_contrast = 100.0
+    else:
+        f_contrast = max(40.0, 100.0 - ((std_c - 65.0) / 35.0) * 30.0)
+    f_contrast = round(min(100.0, max(0.0, f_contrast)), 1)
+
+    # 4. Face Size Factor (0 - 100)
+    if size_metrics is None and bbox is not None and image_shape is not None:
+        try:
+            size_metrics = compute_face_size_metrics(bbox, image_shape)
+        except Exception:
+            size_metrics = None
+
+    if size_metrics is not None:
+        min_dim = min(size_metrics.face_width, size_metrics.face_height)
+        if min_dim <= 0:
+            f_size = 0.0
+        elif min_dim < 32.0:
+            f_size = max(5.0, (min_dim / 32.0) * 40.0)
+        elif min_dim < 80.0:
+            f_size = 40.0 + ((min_dim - 32.0) / 48.0) * 35.0
+        elif min_dim < 200.0:
+            f_size = 75.0 + ((min_dim - 80.0) / 120.0) * 20.0
+        else:
+            f_size = min(100.0, 95.0 + min(5.0, (min_dim - 200.0) / 400.0 * 5.0))
+    else:
+        f_size = 70.0
+    f_size = round(min(100.0, max(0.0, f_size)), 1)
+
+    # 5. Landmark Quality Factor (0 - 100)
+    if landmarks is None or len(landmarks) == 0:
+        a_lm = 0.20
+    else:
+        n_lm = len(landmarks)
+        a_lm = 1.0 if n_lm >= 5 else max(0.20, n_lm / 5.0)
+
+    if landmark_metrics and landmark_metrics.symmetry_ratio is not None:
+        s_sym = float(landmark_metrics.symmetry_ratio)
+    elif landmarks and len(landmarks) >= 5:
+        s_sym = 0.85
+    else:
+        s_sym = 0.60
+
+    confidences: List[float] = []
+    if landmarks:
+        items = landmarks.values() if isinstance(landmarks, dict) else landmarks
+        for pt in items:
+            if isinstance(pt, dict) and pt.get("confidence") is not None:
+                confidences.append(float(pt["confidence"]))
+            elif hasattr(pt, "confidence") and pt.confidence is not None:
+                confidences.append(float(pt.confidence))
+
+    if confidences:
+        c_lm = float(np.mean(confidences))
+    elif landmarks and len(landmarks) > 0:
+        c_lm = min(1.0, max(0.0, float(detection_confidence)))
+    else:
+        c_lm = min(0.50, max(0.0, float(detection_confidence) * 0.50))
+
+    f_landmark = round(100.0 * (0.40 * a_lm + 0.35 * s_sym + 0.25 * c_lm), 1)
+    f_landmark = round(min(100.0, max(0.0, f_landmark)), 1)
+
+    # Weighted baseline combination (weights sum to 1.0)
+    baseline = (
+        0.25 * f_sharpness
+        + 0.20 * f_brightness
+        + 0.15 * f_contrast
+        + 0.20 * f_size
+        + 0.20 * f_landmark
+    )
+
+    # Critical bottleneck gating
+    critical_min = min(f_sharpness, f_brightness, f_size)
+    if critical_min < 25.0:
+        composite = min(baseline, critical_min * 1.80)
+    else:
+        composite = baseline
+
+    quality_score = round(min(100.0, max(0.0, composite)), 1)
+    overall_normalized = round(quality_score / 100.0, 3)
+    grade = evaluate_quality_grade(overall_normalized)
+
+    factors = FaceQualityFactors(
+        sharpness=f_sharpness,
+        brightness=f_brightness,
+        contrast=f_contrast,
+        size=f_size,
+        landmark=f_landmark,
+    )
+
+    return quality_score, factors, grade
 
 
 def analyze_face_comprehensive(
@@ -145,7 +321,8 @@ def analyze_face_comprehensive(
     3. Physical scale & resolution metrics
     4. Clarity & blur measurement
     5. Illumination & contrast diagnostics
-    6. Composite explainable quality scoring & grading
+    6. Composite transparent quality scoring (0-100) & grading
+    7. Face visibility assessment
     """
     img_h, img_w = image_shape
 
@@ -191,26 +368,19 @@ def analyze_face_comprehensive(
     # 5. Illumination & Exposure Metrics
     illum = compute_illumination_metrics(face_crop_rgb)
 
-    # 6. Composite Weighted Quality Score
-    # Weights: Clarity (40%), Illumination (30%), Scale/Size (15%), Pose Frontality (15%)
-    w_clarity = 0.40
-    w_illum = 0.30
-    w_size = 0.15
-    w_pose = 0.15
-
-    score_clarity = clarity.blur_score
-    score_illum = illum.illumination_score
-    score_size = 1.0 if size.is_sufficient_size else 0.40
-    score_pose = pose.frontality_score if pose else 0.80
-
-    composite_score = (
-        w_clarity * score_clarity
-        + w_illum * score_illum
-        + w_size * score_size
-        + w_pose * score_pose
+    # 6. Composite Transparent Quality Scoring (0 - 100) (Step 11)
+    quality_score_100, quality_factors, grade = calculate_face_quality_score(
+        face_crop_rgb=face_crop_rgb,
+        bbox=bbox,
+        image_shape=image_shape,
+        clarity_metrics=clarity,
+        illumination_metrics=illum,
+        size_metrics=size,
+        landmark_metrics=lm_metrics,
+        landmarks=validated_landmarks,
+        detection_confidence=confidence,
     )
-    overall_quality = round(min(1.0, max(0.0, composite_score)), 3)
-    grade = evaluate_quality_grade(overall_quality)
+    overall_quality = round(quality_score_100 / 100.0, 3)
 
     # Usability determination
     is_usable = (
@@ -234,7 +404,9 @@ def analyze_face_comprehensive(
     )
 
     quality_score = ComprehensiveFaceQuality(
+        quality_score=quality_score_100,
         overall_quality=overall_quality,
+        factors=quality_factors,
         sharpness=clarity.sharpness,
         brightness=illum.brightness,
         contrast=illum.contrast,
@@ -252,6 +424,7 @@ def analyze_face_comprehensive(
         face_id=face_id,
         bbox=bbox,
         confidence=round(confidence, 4),
+        quality_score=quality_score_100,
         visibility=visibility_assessment.visibility,
         visibility_assessment=visibility_assessment,
         landmarks=validated_landmarks or [],
@@ -262,6 +435,7 @@ def analyze_face_comprehensive(
         clarity=clarity,
         quality=quality_score,
     )
+
 
 
 

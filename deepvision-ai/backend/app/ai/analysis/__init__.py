@@ -12,6 +12,7 @@ from app.ai.analysis.schemas import (
     FaceVisibility,
     VisibilityStatus,
     FaceVisibilityAssessment,
+    FaceQualityFactors,
     SizeCategory,
     QualityGrade,
     FacialLandmarkMetrics,
@@ -23,6 +24,7 @@ from app.ai.analysis.schemas import (
     StructuredFaceAnalysis,
     AIAnalysisResponse,
 )
+
 
 from app.ai.analysis.landmarks import (
     LandmarkProcessor,
@@ -55,6 +57,7 @@ from app.ai.analysis.quality import (
     compute_brightness_and_contrast,
     analyze_face_quality,
     evaluate_quality_grade,
+    calculate_face_quality_score,
     analyze_face_comprehensive,
     FaceAnalyzer,
     FaceQualityAnalyzer,
@@ -70,6 +73,7 @@ __all__ = [
     "FaceVisibility",
     "VisibilityStatus",
     "FaceVisibilityAssessment",
+    "FaceQualityFactors",
     "SizeCategory",
     "QualityGrade",
     "FacialLandmarkMetrics",
@@ -108,8 +112,10 @@ __all__ = [
     "compute_brightness_and_contrast",
     "analyze_face_quality",
     "evaluate_quality_grade",
+    "calculate_face_quality_score",
     "analyze_face_comprehensive",
     "FaceAnalyzer",
     "FaceQualityAnalyzer",
 ]
+
 

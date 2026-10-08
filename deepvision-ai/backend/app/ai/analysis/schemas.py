@@ -323,13 +323,30 @@ class FaceVisibilityAssessment(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
 
+class FaceQualityFactors(BaseModel):
+    """
+    Granular breakdown of transparent, measurable factors for the 0-100 Face Quality Score (Step 11).
+    Combines Sharpness, Brightness, Contrast, Face Size, and Landmark Quality.
+    """
+    sharpness: float = Field(..., ge=0.0, le=100.0, description="Laplacian variance edge definition (0-100)")
+    brightness: float = Field(..., ge=0.0, le=100.0, description="Photopic luminance exposure suitability (0-100)")
+    contrast: float = Field(..., ge=0.0, le=100.0, description="Luminance dynamic range / contrast (0-100)")
+    size: float = Field(..., ge=0.0, le=100.0, description="Pixel resolution and biometric scale (0-100)")
+    landmark: float = Field(..., ge=0.0, le=100.0, description="Landmark geometry, symmetry, and confidence (0-100)")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class ComprehensiveFaceQuality(BaseModel):
     """
     Unified multi-metric face quality evaluation.
     Preserves full backward compatibility with legacy FaceQualityScore.
     """
+    quality_score: float = Field(
+        default=0.0, ge=0.0, le=100.0, description="Overall face quality score on a transparent 0-100 scale"
+    )
     overall_quality: float = Field(
-        ..., ge=0.0, le=1.0, description="Composite weighted quality score (0.0 to 1.0)"
+        default=0.0, ge=0.0, le=1.0, description="Composite weighted quality score normalized to (0.0 to 1.0)"
     )
     sharpness: float = Field(..., ge=0.0, description="Laplacian variance sharpness measurement")
     brightness: float = Field(..., ge=0.0, le=255.0, description="Mean luminance brightness (0-255)")
@@ -339,6 +356,9 @@ class ComprehensiveFaceQuality(BaseModel):
     # Extended granular diagnostic breakdowns
     grade: QualityGrade = Field(
         default=QualityGrade.GOOD, description="Qualitative face quality grade"
+    )
+    factors: Optional[FaceQualityFactors] = Field(
+        default=None, description="Transparent 0-100 breakdown across measurable visual factors"
     )
     visibility: Optional[FaceVisibility] = Field(
         default=None, description="Qualitative face visibility rating (excellent, good, fair, poor)"
@@ -353,6 +373,16 @@ class ComprehensiveFaceQuality(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+    @model_validator(mode="before")
+    @classmethod
+    def sync_quality_scores(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "quality_score" not in data and "overall_quality" in data and data["overall_quality"] is not None:
+                data["quality_score"] = round(float(data["overall_quality"]) * 100.0, 1)
+            elif "overall_quality" not in data and "quality_score" in data and data["quality_score"] is not None:
+                data["overall_quality"] = round(float(data["quality_score"]) / 100.0, 3)
+        return data
+
 
 class StructuredFaceAnalysis(BaseModel):
     """
@@ -361,6 +391,9 @@ class StructuredFaceAnalysis(BaseModel):
     face_id: Optional[Union[str, int]] = Field(default=None, description="Face identifier")
     bbox: BoundingBox = Field(..., description="Face bounding box coordinates")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Detection confidence score")
+    quality_score: float = Field(
+        default=0.0, ge=0.0, le=100.0, description="Overall face quality score on a 0-100 scale"
+    )
     visibility: FaceVisibility = Field(
         default=FaceVisibility.GOOD,
         description="Qualitative face visibility rating (excellent, good, fair, poor)",
@@ -410,7 +443,20 @@ class StructuredFaceAnalysis(BaseModel):
                     data["visibility"] = va["visibility"]
                 elif hasattr(va, "visibility"):
                     data["visibility"] = va.visibility
+
+            # Sync quality_score from quality if present
+            if "quality_score" not in data and "quality" in data and data["quality"]:
+                q = data["quality"]
+                if isinstance(q, dict) and "quality_score" in q:
+                    data["quality_score"] = q["quality_score"]
+                elif hasattr(q, "quality_score"):
+                    data["quality_score"] = q.quality_score
+                elif isinstance(q, dict) and "overall_quality" in q:
+                    data["quality_score"] = round(float(q["overall_quality"]) * 100.0, 1)
+                elif hasattr(q, "overall_quality"):
+                    data["quality_score"] = round(float(q.overall_quality) * 100.0, 1)
         return data
+
 
 
 
