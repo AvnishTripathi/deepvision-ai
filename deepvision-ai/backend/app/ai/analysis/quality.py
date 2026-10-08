@@ -316,3 +316,7 @@ class FaceAnalyzer:
                     pass
 
         return analyses
+
+
+# Alias for explicit clarity and specification alignment
+FaceQualityAnalyzer = FaceAnalyzer

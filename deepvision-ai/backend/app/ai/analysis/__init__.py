@@ -37,6 +37,7 @@ from app.ai.analysis.pose import (
 )
 from app.ai.analysis.metrics import (
     compute_face_size_metrics,
+    calculate_face_size,
     compute_clarity_metrics,
     compute_illumination_metrics,
 )
@@ -47,6 +48,7 @@ from app.ai.analysis.quality import (
     evaluate_quality_grade,
     analyze_face_comprehensive,
     FaceAnalyzer,
+    FaceQualityAnalyzer,
 )
 
 __all__ = [
@@ -81,6 +83,7 @@ __all__ = [
     "estimate_head_pose",
     # Metrics
     "compute_face_size_metrics",
+    "calculate_face_size",
     "compute_clarity_metrics",
     "compute_illumination_metrics",
     # Quality Analysis & Legacy
@@ -90,4 +93,5 @@ __all__ = [
     "evaluate_quality_grade",
     "analyze_face_comprehensive",
     "FaceAnalyzer",
+    "FaceQualityAnalyzer",
 ]

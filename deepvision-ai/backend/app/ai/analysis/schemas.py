@@ -104,12 +104,18 @@ class HeadPoseEstimation(BaseModel):
 
 class FaceSizeMetrics(BaseModel):
     """Scale, dimensions, and resolution diagnostics for detected face ROI."""
-    width_px: float = Field(..., ge=0.0, description="Face bounding box width in pixels")
-    height_px: float = Field(..., ge=0.0, description="Face bounding box height in pixels")
+    face_width: float = Field(..., ge=0.0, description="Face bounding box width in pixels")
+    face_height: float = Field(..., ge=0.0, description="Face bounding box height in pixels")
+    face_area: float = Field(..., ge=0.0, description="Face bounding box area in square pixels")
+    face_area_ratio: float = Field(
+        ..., ge=0.0, le=1.0, description="Ratio of face area relative to entire image canvas area (face_area / image_area)"
+    )
+    width_px: Optional[float] = Field(default=None, ge=0.0, description="Alias for face_width")
+    height_px: Optional[float] = Field(default=None, ge=0.0, description="Alias for face_height")
     aspect_ratio: float = Field(..., ge=0.0, description="Width-to-height ratio (W / H)")
-    area_px: float = Field(..., ge=0.0, description="Face bounding box area in square pixels")
-    relative_area: float = Field(
-        ..., ge=0.0, le=1.0, description="Ratio of face area relative to entire image canvas"
+    area_px: Optional[float] = Field(default=None, ge=0.0, description="Alias for face_area")
+    relative_area: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0, description="Alias for face_area_ratio"
     )
     size_category: SizeCategory = Field(..., description="Qualitative size category")
     is_sufficient_size: bool = Field(
@@ -117,6 +123,35 @@ class FaceSizeMetrics(BaseModel):
     )
 
     model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_size_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Map width
+            if "face_width" not in data and "width_px" in data:
+                data["face_width"] = data["width_px"]
+            elif "width_px" not in data and "face_width" in data:
+                data["width_px"] = data["face_width"]
+
+            # Map height
+            if "face_height" not in data and "height_px" in data:
+                data["face_height"] = data["height_px"]
+            elif "height_px" not in data and "face_height" in data:
+                data["height_px"] = data["face_height"]
+
+            # Map area
+            if "face_area" not in data and "area_px" in data:
+                data["face_area"] = data["area_px"]
+            elif "area_px" not in data and "face_area" in data:
+                data["area_px"] = data["face_area"]
+
+            # Map relative area / ratio
+            if "face_area_ratio" not in data and "relative_area" in data:
+                data["face_area_ratio"] = data["relative_area"]
+            elif "relative_area" not in data and "face_area_ratio" in data:
+                data["relative_area"] = data["face_area_ratio"]
+        return data
 
 
 class IlluminationMetrics(BaseModel):

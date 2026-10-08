@@ -62,6 +62,10 @@ def compute_face_size_metrics(
         is_sufficient = False
 
     return FaceSizeMetrics(
+        face_width=round(w, 2),
+        face_height=round(h, 2),
+        face_area=round(area, 2),
+        face_area_ratio=round(relative_area, 4),
         width_px=round(w, 2),
         height_px=round(h, 2),
         aspect_ratio=aspect_ratio,
@@ -70,6 +74,10 @@ def compute_face_size_metrics(
         size_category=category,
         is_sufficient_size=is_sufficient,
     )
+
+
+# Explicit task alias function
+calculate_face_size = compute_face_size_metrics
 
 
 # -----------------------------------------------------------------------------

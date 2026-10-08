@@ -48,6 +48,7 @@ from app.ai.analysis.pose import (
 )
 from app.ai.analysis.metrics import (
     compute_face_size_metrics,
+    calculate_face_size,
     compute_clarity_metrics,
     compute_illumination_metrics,
 )
@@ -58,6 +59,7 @@ from app.ai.analysis.quality import (
     evaluate_quality_grade,
     analyze_face_comprehensive,
     FaceAnalyzer,
+    FaceQualityAnalyzer,
 )
 from app.services.ai_service import get_ai_service
 
@@ -450,6 +452,34 @@ class TestFaceSizeMetrics:
         # IPD < 20px marks face as insufficient for biometric matching
         size = compute_face_size_metrics(bbox, image_shape=(1080, 1920), ipd=15.0)
         assert not size.is_sufficient_size
+
+    def test_face_size_measurable_properties(self):
+        """Verifies calculation of face_width, face_height, face_area, and face_area_ratio."""
+        img_w, img_h = 1000, 1000
+        bbox = BoundingBox(x1=200, y1=300, x2=400, y2=600)  # w=200, h=300
+
+        size = calculate_face_size(bbox, image_shape=(img_h, img_w))
+
+        # Check explicit measurable properties
+        assert size.face_width == 200.0
+        assert size.face_height == 300.0
+        assert size.face_area == 60000.0  # 200 * 300
+        # face_area_ratio = face_area / image_area = 60000 / (1000 * 1000) = 0.06
+        expected_ratio = round(60000.0 / (1000 * 1000), 4)
+        assert size.face_area_ratio == expected_ratio
+        assert size.aspect_ratio == round(200.0 / 300.0, 3)
+
+        # Check backward compatibility aliases
+        assert size.width_px == 200.0
+        assert size.height_px == 300.0
+        assert size.area_px == 60000.0
+        assert size.relative_area == expected_ratio
+
+    def test_face_quality_analyzer_alias(self):
+        """Verifies FaceQualityAnalyzer can be instantiated and behaves identically to FaceAnalyzer."""
+        analyzer = FaceQualityAnalyzer(min_sharpness=50.0)
+        assert isinstance(analyzer, FaceAnalyzer)
+        assert analyzer.min_sharpness == 50.0
 
 
 # -----------------------------------------------------------------------------
