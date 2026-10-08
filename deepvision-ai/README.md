@@ -93,23 +93,42 @@ Structured JSON Result
 * **Live API Verification**: Validated on real portrait image (`sample_face.jpg`) with ~17 ms CPU latency.
 * **Test Suite**: 146/146 automated unit and integration tests passing.
 
-#### 🌟 Current Capabilities (End of Step 3)
+### **Step 4 — Face Landmarks & Quality Analysis** ✅ `Completed`
+* **Landmark Strategy**: Formally documented 5-point native YuNet landmark strategy in `docs/face-landmark-model-selection.md`.
+* **Modular Analysis Layer**: Implemented decoupled modules under `app/ai/analysis/`:
+  - `landmarks.py`: 5-point landmark geometry (inter-pupillary distance, eye tilt angle, bilateral symmetry ratio).
+  - `pose.py`: 3D Head pose estimation (Yaw, Pitch, Roll Euler angles, frontality score, and pose categories via `cv2.solvePnP` with 3D anthropometric model).
+  - `metrics.py`: Blur/clarity Laplacian variance, illumination/exposure diagnostics, and face resolution/scale metrics.
+  - `quality.py`: Weighted composite quality scoring ($0.0 \dots 1.0$), qualitative grading (`EXCELLENT` ... `UNUSABLE`), and usability validation.
+  - `schemas.py`: Strongly typed Pydantic v2 schemas for all diagnostic metrics.
+* **REST API Endpoint**: Added `POST /api/v1/ai/analyze` returning complete `AIAnalysisResponse` with granular per-face diagnostics.
+* **Backward Compatibility**: Exact preservation of legacy `FaceQualityScore` and Step 2/3 contracts.
+* **Automated Test Suite**: 176/176 tests passing (30 new dedicated Step 4 tests).
+
+#### 🌟 Current Capabilities (End of Step 4)
 * **Real Image Face Detection**: Real, production neural network inference evaluating genuine photos without mocks.
 * **Multiple Faces**: Accurately detects and localizes multiple faces across varying scales, angles, and crowd densities in a single forward pass.
 * **Confidence Scores**: Authentic floating-point probability scores ($0.0 \dots 1.0$) directly calculated from model activations.
 * **Bounding Boxes**: Absolute, pixel-accurate bounding box coordinates ($x_1, y_1, x_2, y_2$) validated and clipped to original image bounds.
-* **Configurable Threshold**: Globally configurable detection sensitivity (`AI_CONFIDENCE_THRESHOLD`, default `0.6`) and per-request dynamic overrides via query parameter `?confidence_threshold=`.
-* **CPU/GPU Runtime**: Resilient hardware abstraction executing reliably on CPU with SIMD acceleration, with automatic GPU enablement (CUDA, DirectML) where drivers and runtime execution providers exist.
-* **Inference Timing**: Real measured latency profiling returned in API responses and logged, including granular breakdown (`preprocessing_time_ms`, `inference_time_ms`, `postprocessing_time_ms`, `total_processing_time_ms`).
-* **API Access**: Hardened, production-ready REST endpoint `POST /api/v1/ai/detect` documented via OpenAPI / Swagger UI (`/docs`, `/redoc`), input validation, and sanitized error schemas (`400`, `413`, `500`, `503`).
-* **Development Visualization**: Offline developer utility (`scripts/visualize_detections.py` and `app/ai/visualization/annotator.py`) to annotate images with bounding boxes, confidence score badges, and 5-point facial landmarks.
+* **5-Point Facial Landmarks**: Natively localized landmark points (eyes, nose, mouth corners) with sub-pixel precision.
+* **Geometric Facial Diagnostics**: Inter-pupillary distance (IPD), eye-line tilt angle, and bilateral facial symmetry.
+* **3D Head Pose Orientation**: Perspective-n-Point Euler rotation angles (Yaw, Pitch, Roll) and frontality score.
+* **Clarity & Blur Evaluation**: Laplacian variance sharpness, continuous blur score, and categorical classification.
+* **Illumination Diagnostics**: Mean luminance brightness, standard deviation contrast, and exposure classification.
+* **Scale & Resolution Diagnostics**: Face width, height, aspect ratio, area fraction, and biometric sufficiency check.
+* **Composite Quality Scoring**: Explainable, weighted quality score ($0.0 \dots 1.0$), qualitative grades, and usability verdict.
+* **Configurable Threshold**: Globally configurable detection sensitivity (`AI_CONFIDENCE_THRESHOLD`, default `0.6`) and per-request dynamic overrides.
+* **CPU/GPU Runtime**: Resilient hardware abstraction executing reliably on CPU with SIMD acceleration, with automatic GPU enablement.
+* **Inference Timing**: Real measured latency profiling returned in API responses and logged.
+* **REST API Endpoints**: Hardened, production-ready endpoints `POST /api/v1/ai/detect` and `POST /api/v1/ai/analyze`.
+* **Development Visualization**: Offline developer utility (`scripts/visualize_detections.py` and `app/ai/visualization/annotator.py`) to annotate images.
 
 #### ⚠️ What is NOT Implemented Yet
-* ❌ **Identity Recognition / Biometric Matching**: No facial embeddings extraction, identity database matching, or biometric identification is active (`face_id: null`).
+* ❌ **Identity Recognition / Biometric Matching**: No facial embeddings extraction, identity database matching, or biometric identification (`face_id: null`).
 * ❌ **Multi-Frame Video Tracking**: No temporal trajectory tracking across video frames (e.g. ByteTrack, SORT) or persistent track IDs.
 * ❌ **Live Webcam Streaming WebSocket**: Real-time live webcam frame-by-frame streaming over WebSocket is not yet connected to the deep face detection model.
 * ❌ **Liveness & Anti-Spoofing Detection**: No 2D/3D print attack, screen replay, or silicon mask anti-spoofing verification models.
-* ❌ **Facial Attribute Analysis**: No estimation of age, gender, emotion, or head pose angles.
+* ❌ **Final Production Dashboard**: The analytics UI dashboard is not built yet.
 
 ---
 
@@ -129,7 +148,8 @@ Structured JSON Result
 
 ## 📚 Technical Documentation
 
-- 🏛️ [AI Engine Architecture](docs/ai-architecture.md) — Architectural design, 7-stage pipeline, component breakdown, and error shielding.
+- 🏛️ [AI Engine Architecture](docs/ai-architecture.md) — Architectural design, 9-stage pipeline, Face Analysis layer, component breakdown, and error shielding.
+- 🔬 [Face Landmark Model Selection](docs/face-landmark-model-selection.md) — Architectural evaluation and trade-off analysis of landmark extraction strategies.
 - 🔬 [AI Model Selection Report](docs/ai-model-selection.md) — Evaluation of SCRFD, YuNet, RetinaFace, and YOLO-Face on WIDER FACE benchmarks.
 - 📦 [Model Management Guide](docs/model-management.md) — Storage structure, versioning, download procedures, SHA-256 verification, and hardware variants.
 - ⚙️ [Model Setup & Deployment](docs/model-setup.md) — Host hardware constraints, ONNX weights placement, and production instructions.

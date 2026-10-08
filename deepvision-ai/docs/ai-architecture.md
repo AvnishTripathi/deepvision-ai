@@ -108,9 +108,13 @@ backend/app/ai/
 ├── tracking/                # Multi-face trajectory tracking (Future Step)
 │   └── __init__.py
 │
-├── analysis/                # Facial analytics & quality evaluation
-│   ├── __init__.py
-│   └── quality.py           # Laplacian sharpness, brightness, contrast
+├── analysis/                # Face quality & landmark analytics (Step 4)
+│   ├── __init__.py          # Exported analysis modules and schemas
+│   ├── schemas.py           # Pydantic v2 analysis data contracts
+│   ├── landmarks.py         # 5-point landmark metrics (IPD, tilt, symmetry)
+│   ├── pose.py              # 3D Head pose (Yaw, Pitch, Roll via solvePnP)
+│   ├── metrics.py           # Blur/clarity, illumination, face size metrics
+│   └── quality.py           # Composite quality scoring & FaceAnalyzer
 │
 ├── recognition/             # Facial embedding & verification contract (Future Step)
 │   ├── __init__.py
@@ -153,33 +157,80 @@ Clients never receive internal Python tracebacks, memory pointers, or local file
 
 ---
 
-## 5. Current Capabilities (End of Step 3)
+## 5. Face Analysis Architecture (Step 4)
 
-At the completion of Step 3, the DeepVision AI platform provides:
+In addition to detection, DeepVision AI incorporates a dedicated, modular Face Analysis layer built on top of the face detector:
 
-* **Real Image Face Detection**: Real, production neural network inference using YuNet ONNX weights (`face_detection_yunet_2023mar.onnx`).
-* **Multiple Faces**: Accurately localizes and detects multiple human faces across varying scales, orientations, and crowded scenes in a single forward pass.
-* **Confidence Scores**: Real, un-fabricated floating-point probability scores ($0.0 \dots 1.0$) computed from model sigmoid activations.
-* **Bounding Boxes**: Absolute, pixel-accurate bounding box coordinates ($x_1, y_1, x_2, y_2$) mapped directly to the original uploaded image dimensions.
-* **Configurable Threshold**: Globally configurable detection sensitivity via `AI_CONFIDENCE_THRESHOLD` (environment variable / settings) and dynamic per-request overrides via API query parameter `confidence_threshold`.
-* **CPU/GPU Runtime**: Resilient hardware abstraction executing reliably on CPU with SIMD optimizations, with automatic GPU enablement (CUDA, DirectML) where drivers and runtime execution providers exist.
-* **Inference Timing**: Real measured latency profiling returned in the response JSON and logged to telemetry, including granular breakdown:
-  - `preprocessing_time_ms` (stream decoding, safety validation, color conversion)
-  - `inference_time_ms` (neural network forward pass)
-  - `postprocessing_time_ms` (NMS, coordinate inversion, bounding box clipping)
-  - `total_processing_time_ms` (end-to-end pipeline latency)
-* **API Access**: Standardized, production-ready REST API endpoint `POST /api/v1/ai/detect` documented with OpenAPI / Swagger (`/docs`, `/redoc`), input validation, and sanitized error schemas.
-* **Development Visualization**: Offline developer utility (`scripts/visualize_detections.py` and `app/ai/visualization/annotator.py`) to annotate images with bounding boxes, confidence score tags, and 5-point facial landmarks without modifying the original input.
+```text
+Image
+ ↓
+Face Detector
+ ↓
+Face Bounding Box
+ ↓
+Face Crop
+ ↓
+Facial Landmarks (5-point)
+ ↓
+Quality & Pose Analysis
+ ↓
+Structured Face Analysis
+```
+
+### Analytical Capabilities:
+1. **Facial Landmarks & Geometric Metrics**:
+   - 5 canonical facial landmarks: right eye, left eye, nose tip, mouth right corner, mouth left corner.
+   - Inter-pupillary distance (IPD) in image pixels.
+   - Eye tilt angle ($\theta^\circ$) from horizontal.
+   - Facial bilateral symmetry ratio ($0.0 \dots 1.0$).
+2. **3D Head Pose & Orientation Estimation**:
+   - Solves Perspective-n-Point (`cv2.solvePnP` with EPNP / iterative fallback) against a canonical 3D anthropometric face model.
+   - Estimates Euler angles: **Yaw**, **Pitch**, and **Roll** in degrees ($[-90^\circ, +90^\circ]$).
+   - Computes normalized **Frontality Score** ($0.0 \dots 1.0$) and qualitative orientation categorization (`FRONTAL`, `SLIGHT_TURN`, `PROFILE`, `UPWARD`, `DOWNWARD`).
+3. **Clarity & Blur Detection**:
+   - Measures high-frequency spatial variation using Laplacian variance.
+   - Categorizes sharpness into `SHARP`, `SLIGHTLY_BLURRED`, `BLURRED`, `VERY_BLURRED`.
+4. **Illumination & Exposure Diagnostics**:
+   - Measures mean luminance brightness ($0 \dots 255$) and standard deviation contrast.
+   - Categorizes exposure into `OPTIMAL`, `UNDEREXPOSED`, `OVEREXPOSED`, `LOW_CONTRAST`, `HARSH_CONTRAST`.
+5. **Face Size & Resolution Analysis**:
+   - Evaluates face bounding box width, height, aspect ratio, area, and canvas coverage ratio.
+   - Classifies face scale into `TINY` ($<32\text{px}$), `SMALL` ($32\text{--}80\text{px}$), `MEDIUM` ($80\text{--}200\text{px}$), and `LARGE` ($>200\text{px}$).
+   - Checks biometric processing sufficiency threshold.
+6. **Composite Quality Scoring & Usability**:
+   - Weighted multi-metric quality score combining clarity ($40\%$), illumination ($30\%$), resolution scale ($15\%$), and head frontality ($15\%$).
+   - Qualitative grading: `EXCELLENT`, `GOOD`, `FAIR`, `POOR`, `UNUSABLE`.
+   - Actionable binary `is_usable` verdict for biometric and verification downstream workflows.
+7. **Dedicated API Endpoint**:
+   - `POST /api/v1/ai/analyze` returning strongly typed `AIAnalysisResponse` with complete `StructuredFaceAnalysis` per face.
 
 ---
 
-## 6. What is NOT Implemented Yet
+## 6. Current Capabilities (End of Step 4)
 
-To preserve architectural boundaries and development discipline, the following features are explicitly **NOT** implemented in Step 3:
+At the completion of Step 4, the DeepVision AI platform provides:
 
-* ❌ **Identity Recognition / Biometric Matching**: No facial embeddings extraction, identity database matching, or biometric identification is active. All detections return `face_id: null`.
+* **Real Image Face Detection**: Production YuNet ONNX inference on single/multi-face scenes.
+* **5-Point Facial Landmarks**: Natively parsed during detection pass with zero overhead.
+* **Facial Geometry Diagnostics**: IPD, eye-line tilt angle, and bilateral facial symmetry.
+* **3D Head Pose Estimation**: Perspective-n-Point yaw, pitch, roll, frontality score, and pose classification.
+* **Clarity & Blur Detection**: Laplacian variance sharpness, blur score, and categorical rating.
+* **Illumination Diagnostics**: Luminance brightness, standard deviation contrast, and exposure classification.
+* **Face Scale & Resolution Diagnostics**: Width, height, aspect ratio, canvas area fraction, and size categories.
+* **Composite Quality Scoring**: Explainable, weighted quality score ($0.0 \dots 1.0$), qualitative grades, and usability verdict.
+* **Backward Compatible Quality API**: Legacy `FaceQualityScore` preserved for existing callers.
+* **REST API Endpoints**: `POST /api/v1/ai/detect` for fast face detection, and `POST /api/v1/ai/analyze` for comprehensive face analysis.
+
+---
+
+## 7. What is NOT Implemented Yet
+
+To preserve architectural boundaries and development discipline, the following features are explicitly **NOT** implemented in Step 4:
+
+* ❌ **Identity Recognition / Biometric Matching**: No facial embeddings extraction, identity database matching, or biometric identification. All detections maintain `face_id: null`.
 * ❌ **Multi-Frame Video Tracking**: No temporal trajectory tracking across video frames (e.g. ByteTrack, SORT) or track ID continuity.
 * ❌ **Webcam Streaming WebSocket**: Real-time live webcam frame-by-frame streaming over WebSocket is not yet connected to the deep face detection engine.
 * ❌ **Liveness & Anti-Spoofing Detection**: No 2D/3D print attack, screen replay, or silicon mask anti-spoofing verification models.
-* ❌ **Facial Attribute Analysis**: No estimation of age, gender, emotion, head pose angles (yaw, pitch, roll), or facial landmarks beyond the core 5 keypoints.
+* ❌ **Final Production Dashboard**: The analytics UI dashboard is not built yet.
+
 

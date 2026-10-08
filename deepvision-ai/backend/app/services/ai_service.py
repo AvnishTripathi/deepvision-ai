@@ -105,6 +105,42 @@ class AIService:
 
         return result
 
+    def analyze_faces(
+        self,
+        image_input: ImageSource,
+        confidence_threshold: Optional[float] = None,
+        request_id: Optional[str] = None,
+        min_sharpness: float = 50.0,
+    ) -> Any:
+        """
+        Executes end-to-end face detection followed by detailed face quality,
+        landmark geometry, and 3D pose analysis.
+        """
+        # 1. Enforce payload size limits before processing
+        if isinstance(image_input, (bytes, bytearray)):
+            if len(image_input) > self.config.ai_max_image_bytes:
+                raise ImageTooLargeException(
+                    f"Image payload size ({len(image_input)} bytes) exceeds configured limit "
+                    f"of {self.config.AI_MAX_IMAGE_SIZE_MB}MB ({self.config.ai_max_image_bytes} bytes)."
+                )
+
+        # 2. Resolve image to RGB numpy array
+        image_rgb = self._detector.preprocessor.load_image(image_input)
+
+        # 3. Detect faces
+        detection_result: FrameInferenceResult = self.detect_faces(
+            image_input=image_rgb,
+            confidence_threshold=confidence_threshold,
+            request_id=request_id,
+        )
+
+        # 4. Perform comprehensive face analysis
+        from app.ai.analysis.quality import FaceAnalyzer
+        analyzer = FaceAnalyzer(min_sharpness=min_sharpness)
+        analyses = analyzer.analyze_detections(image_rgb, detection_result.detections)
+
+        return analyses, detection_result
+
     def get_service_status(self) -> Dict[str, Any]:
         """Returns runtime telemetry, active device resolution, and model status."""
         telemetry = get_device_telemetry()

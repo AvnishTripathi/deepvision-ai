@@ -31,6 +31,7 @@ from app.schemas.ai import (
     ImageDimensions,
     PerformanceBreakdown,
 )
+from app.ai.analysis.schemas import AIAnalysisResponse
 from app.services.ai_service import AIService, get_ai_service
 
 logger = logging.getLogger("deepvision.api.ai")
@@ -268,6 +269,165 @@ async def detect_faces(
         face_count=len(face_items),
         faces=face_items,
         timing=timing_breakdown,
+        request_id=request_id,
+    )
+
+
+ANALYZE_ENDPOINT_DESCRIPTION = """
+### DeepVision AI — Comprehensive Face Landmarks & Quality Analysis
+
+Executes face detection, 5-point facial landmark geometric analysis, 3D head pose estimation
+(Yaw, Pitch, Roll), sharpness/blur evaluation, illumination diagnostics, and composite quality grading.
+
+---
+
+#### 1. Image Upload
+- **Method**: `POST`
+- **Content-Type**: `multipart/form-data`
+- **File Field**: `file` (single binary image file)
+- **Optional Query Parameter**: `confidence_threshold` (float between `0.0` and `1.0`).
+- **Optional Query Parameter**: `min_sharpness` (float, default `50.0`).
+
+---
+
+#### 2. Response Structure
+Returns `AIAnalysisResponse` with structured face analysis for each detected face:
+- `bbox`: Absolute pixel coordinates.
+- `landmarks`: 5-point facial landmarks (right_eye, left_eye, nose_tip, mouth_right, mouth_left).
+- `landmark_metrics`: Inter-pupillary distance (IPD), eye tilt angle, and bilateral symmetry ratio.
+- `pose`: 3D Head pose angles (yaw, pitch, roll in degrees), frontality score, and pose category.
+- `size`: Face width, height, aspect ratio, area, relative area, and size category.
+- `illumination`: Mean brightness, contrast, exposure category, and illumination score.
+- `clarity`: Laplacian variance sharpness, blur score, and blur category.
+- `quality`: Overall composite quality score (0.0 to 1.0), qualitative grade, and usability verdict.
+"""
+
+
+@router.post(
+    "/analyze",
+    response_model=AIAnalysisResponse,
+    responses={
+        200: {
+            "model": AIAnalysisResponse,
+            "description": "Comprehensive face analysis completed successfully.",
+        },
+        400: {
+            "model": ClientValidationErrorResponse,
+            "description": "Invalid, corrupted, unsupported image input or parameter validation error.",
+        },
+        413: {
+            "model": PayloadTooLargeErrorResponse,
+            "description": "Image payload size exceeds the 10 MB maximum limit.",
+        },
+        500: {
+            "model": InternalInferenceErrorResponse,
+            "description": "Internal AI inference evaluation error (sanitized).",
+        },
+        503: {
+            "model": AIDetectionErrorResponse,
+            "description": "AI detector model is not configured or operational.",
+        },
+    },
+    summary="Execute Face Detection with Comprehensive Quality & Landmark Analysis",
+    description=ANALYZE_ENDPOINT_DESCRIPTION,
+)
+async def analyze_image(
+    request: Request,
+    file: UploadFile = File(
+        ...,
+        description="Image file to analyze (JPEG, PNG, WebP, BMP; max 10MB, max 4096px)",
+    ),
+    confidence_threshold: Optional[float] = Query(
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Optional minimum confidence score threshold (0.0 to 1.0; overrides model default)",
+    ),
+    min_sharpness: float = Query(
+        50.0,
+        ge=0.0,
+        description="Minimum sharpness threshold for usability grading",
+    ),
+    ai_service: AIService = Depends(get_ai_service),
+):
+    """
+    Ingests and validates image upload with defense-in-depth safety controls,
+    then executes multi-metric face quality, landmark geometry, and 3D pose analysis.
+    """
+    request_id = getattr(request.state, "request_id", None) or request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    safe_filename = sanitize_filename(file.filename)
+
+    # 1. Memory-Safe Stream Reading with Hard Payload Cap
+    content = await read_upload_stream_safely(
+        file=file,
+        max_bytes=settings.ai_max_image_bytes,
+    )
+
+    # 2. Comprehensive Image Safety Validation & In-Memory RGB Decoding
+    image_np, verified_format, (w, h) = validate_and_decode_image_security(
+        data=content,
+        declared_content_type=file.content_type,
+        declared_filename=file.filename,
+        max_dimension=settings.AI_MAX_IMAGE_DIMENSION,
+    )
+
+    # 3. Operational Detector Check
+    if not ai_service.is_operational:
+        raise DetectorNotConfiguredException(
+            message=(
+                f"AI face detection model is not operational. The detector model weights "
+                f"for '{settings.AI_MODEL_NAME}' are not configured or loaded into the inference engine."
+            ),
+            detail="Please place model weights in 'models/face_detection/' as documented in docs/model-setup.md.",
+            model_name=settings.AI_MODEL_NAME,
+            device=settings.AI_DEVICE.upper(),
+        )
+
+    # 4. Execute Analysis Pipeline
+    try:
+        analyses, detection_result = ai_service.analyze_faces(
+            image_input=image_np,
+            confidence_threshold=confidence_threshold,
+            request_id=request_id,
+            min_sharpness=min_sharpness,
+        )
+    except DetectorNotConfiguredException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Analysis execution failed on model %s [request_id=%s]: %s",
+            settings.AI_MODEL_NAME,
+            request_id,
+            exc,
+            exc_info=True,
+        )
+        raise InferenceError(
+            message="An error occurred during AI face analysis processing.",
+            detail=str(exc),
+            model_name=settings.AI_MODEL_NAME,
+        )
+
+    # Structured Telemetry Logging (Zero image data logged)
+    log_ai_inference(
+        logger_instance=logger,
+        model=detection_result.model_name or settings.AI_MODEL_NAME,
+        device=str(detection_result.device).upper(),
+        image_width=w,
+        image_height=h,
+        number_of_faces=len(analyses),
+        processing_time_ms=detection_result.processing_time_ms,
+        request_id=request_id,
+    )
+
+    return AIAnalysisResponse(
+        success=True,
+        model=detection_result.model_name or settings.AI_MODEL_NAME,
+        device=str(detection_result.device).upper(),
+        image_width=w,
+        image_height=h,
+        processing_time_ms=round(detection_result.processing_time_ms, 2),
+        face_count=len(analyses),
+        faces=analyses,
         request_id=request_id,
     )
 
