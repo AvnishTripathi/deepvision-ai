@@ -6,13 +6,14 @@ size metrics, illumination, clarity, and comprehensive face quality scoring.
 
 from enum import Enum
 from typing import List, Optional, Union, Dict, Any
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 from app.schemas.ai import (
     BoundingBox,
     FaceBoundingBox,
     NormalizedBoundingBox,
     LandmarkPoint,
+    LandmarkCoordinate,
 )
 
 
@@ -183,7 +184,14 @@ class StructuredFaceAnalysis(BaseModel):
     face_id: Optional[Union[str, int]] = Field(default=None, description="Face identifier")
     bbox: BoundingBox = Field(..., description="Face bounding box coordinates")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Detection confidence score")
-    landmarks: List[LandmarkPoint] = Field(default_factory=list, description="5-point facial landmarks")
+    landmarks: Dict[str, LandmarkCoordinate] = Field(
+        default_factory=dict,
+        description="Structured facial landmarks map {name: {x, y}}",
+    )
+    landmarks_list: Optional[List[LandmarkPoint]] = Field(
+        default=None,
+        description="Optional list representation of landmark points",
+    )
     landmark_metrics: Optional[FacialLandmarkMetrics] = Field(
         default=None, description="Inter-pupillary distance and bilateral symmetry metrics"
     )
@@ -196,6 +204,20 @@ class StructuredFaceAnalysis(BaseModel):
     quality: ComprehensiveFaceQuality = Field(..., description="Composite quality assessment and grade")
 
     model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_landmarks_dict(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            raw_lm = data.get("landmarks")
+            if isinstance(raw_lm, list):
+                from app.ai.analysis.landmarks import landmarks_to_dict
+                data["landmarks_list"] = raw_lm
+                data["landmarks"] = landmarks_to_dict(raw_lm)
+            elif isinstance(raw_lm, dict):
+                from app.ai.analysis.landmarks import landmarks_to_dict
+                data["landmarks"] = landmarks_to_dict(raw_lm)
+        return data
 
 
 class AIAnalysisResponse(BaseModel):

@@ -141,6 +141,35 @@ class LandmarkPoint(BaseModel):
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Landmark confidence score")
 
 
+class LandmarkCoordinate(BaseModel):
+    """2D coordinate representing a specific facial landmark point in image space."""
+    x: float = Field(..., description="X coordinate in original image pixels")
+    y: float = Field(..., description="Y coordinate in original image pixels")
+    confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Optional landmark confidence score")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    @classmethod
+    def from_point(cls, point: Any) -> "LandmarkCoordinate":
+        if isinstance(point, LandmarkCoordinate):
+            return point
+        if hasattr(point, "x") and hasattr(point, "y"):
+            return cls(
+                x=round(float(point.x), 2),
+                y=round(float(point.y), 2),
+                confidence=getattr(point, "confidence", None),
+            )
+        if isinstance(point, dict) and "x" in point and "y" in point:
+            return cls(
+                x=round(float(point["x"]), 2),
+                y=round(float(point["y"]), 2),
+                confidence=point.get("confidence"),
+            )
+        if isinstance(point, (list, tuple)) and len(point) >= 2:
+            return cls(x=round(float(point[0]), 2), y=round(float(point[1]), 2))
+        raise ValueError(f"Cannot parse LandmarkCoordinate from: {point}")
+
+
 class FaceQualityScore(BaseModel):
     """Multi-metric facial quality assessment."""
     overall_quality: float = Field(..., ge=0.0, le=1.0, description="Composite face quality score (0.0 to 1.0)")
@@ -183,6 +212,14 @@ class FaceDetection(BaseModel):
     @property
     def face_index(self) -> Optional[Union[str, int]]:
         return self.face_id
+
+    @property
+    def landmarks_dict(self) -> Optional[Dict[str, LandmarkCoordinate]]:
+        """Dictionary of landmarks formatted by name: {'left_eye': {'x': 150, 'y': 180}, ...}."""
+        if not self.landmarks:
+            return None
+        from app.ai.analysis.landmarks import landmarks_to_dict
+        return landmarks_to_dict(self.landmarks)
 
 
 # Alias for backwards compatibility
@@ -302,6 +339,10 @@ class DetectedFaceItem(BaseModel):
     bbox: FaceBoundingBox = Field(..., description="Face bounding box")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Detection confidence score")
     landmarks: Optional[List[LandmarkPoint]] = Field(default=None, description="Optional 5-point facial landmarks")
+    landmarks_dict: Optional[Dict[str, LandmarkCoordinate]] = Field(
+        default=None,
+        description="Structured facial landmarks map (e.g. left_eye, right_eye, nose)",
+    )
 
     model_config = ConfigDict(populate_by_name=True)
 

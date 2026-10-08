@@ -1,14 +1,152 @@
 """
 DeepVision AI — Facial Landmark Processing & Geometric Analysis Module
-Extracts, validates, and evaluates spatial relationships and symmetry from facial landmarks.
+Extracts, validates, normalizes, and evaluates spatial relationships and symmetry from facial landmarks.
+Supports structured dictionary format:
+{
+  "left_eye": {"x": 150.0, "y": 180.0},
+  "right_eye": {"x": 220.0, "y": 180.0},
+  "nose": {"x": 185.0, "y": 220.0},
+  "left_mouth": {"x": 160.0, "y": 260.0},
+  "right_mouth": {"x": 210.0, "y": 260.0}
+}
+Preserves all additional landmarks provided by models without inventing missing points.
+All coordinates strictly correspond to the original image coordinate system.
 """
 
 import math
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Any, Union
 import numpy as np
 
-from app.schemas.ai import LandmarkPoint
+from app.schemas.ai import LandmarkPoint, LandmarkCoordinate
 from app.ai.analysis.schemas import FacialLandmarkMetrics
+
+
+# Standard canonical landmark names (Step 4 specification)
+STANDARD_LANDMARK_NAMES = [
+    "left_eye",
+    "right_eye",
+    "nose",
+    "left_mouth",
+    "right_mouth",
+]
+
+# Supported bidirectional aliases mapping alternate conventions to canonical names
+LANDMARK_NAME_ALIASES: Dict[str, str] = {
+    "left_eye": "left_eye",
+    "right_eye": "right_eye",
+    "nose": "nose",
+    "nose_tip": "nose",
+    "left_mouth": "left_mouth",
+    "mouth_left": "left_mouth",
+    "right_mouth": "right_mouth",
+    "mouth_right": "right_mouth",
+}
+
+
+def normalize_landmark_name(name: str) -> str:
+    """
+    Normalizes a landmark identifier name to standard canonical naming:
+    'nose_tip' -> 'nose'
+    'mouth_left' -> 'left_mouth'
+    'mouth_right' -> 'right_mouth'
+    Any other landmark name (e.g. 68-point or mesh points) is preserved without modification.
+    """
+    clean = str(name).strip().lower()
+    return LANDMARK_NAME_ALIASES.get(clean, clean)
+
+
+def landmarks_to_dict(
+    landmarks: Union[List[Union[LandmarkPoint, Dict[str, Any]]], Dict[str, Any]],
+) -> Dict[str, LandmarkCoordinate]:
+    """
+    Converts a list or dict of landmarks to a clean structured dictionary formatted as:
+    {
+      "left_eye": {"x": 150.0, "y": 180.0},
+      "right_eye": {"x": 220.0, "y": 180.0},
+      "nose": {"x": 185.0, "y": 220.0},
+      "left_mouth": {"x": 160.0, "y": 260.0},
+      "right_mouth": {"x": 210.0, "y": 260.0}
+    }
+    Coordinates strictly correspond to the original image coordinate system.
+    If the selected model provides more landmarks, all are preserved in the structured dictionary.
+    Does not invent unobserved landmarks.
+    """
+    if not landmarks:
+        return {}
+
+    result: Dict[str, LandmarkCoordinate] = {}
+
+    if isinstance(landmarks, dict):
+        for raw_name, coord in landmarks.items():
+            norm_name = normalize_landmark_name(raw_name)
+            result[norm_name] = LandmarkCoordinate.from_point(coord)
+
+    elif isinstance(landmarks, list):
+        for lm in landmarks:
+            if isinstance(lm, LandmarkPoint):
+                norm_name = normalize_landmark_name(lm.name)
+                result[norm_name] = LandmarkCoordinate(
+                    x=round(float(lm.x), 2),
+                    y=round(float(lm.y), 2),
+                    confidence=lm.confidence,
+                )
+            elif isinstance(lm, dict) and "x" in lm and "y" in lm:
+                raw_name = lm.get("name", "point")
+                norm_name = normalize_landmark_name(raw_name)
+                result[norm_name] = LandmarkCoordinate(
+                    x=round(float(lm["x"]), 2),
+                    y=round(float(lm["y"]), 2),
+                    confidence=lm.get("confidence"),
+                )
+
+    return result
+
+
+# Alias for explicit clarity
+format_structured_landmarks = landmarks_to_dict
+
+
+def landmarks_to_list(
+    landmarks: Union[Dict[str, Any], List[Union[LandmarkPoint, Dict[str, Any]]]],
+) -> List[LandmarkPoint]:
+    """Converts structured landmarks into a list of LandmarkPoint items."""
+    if not landmarks:
+        return []
+
+    if isinstance(landmarks, list):
+        return [
+            lm if isinstance(lm, LandmarkPoint) else LandmarkPoint(
+                name=normalize_landmark_name(lm.get("name", "point")),
+                x=float(lm["x"]),
+                y=float(lm["y"]),
+                confidence=lm.get("confidence"),
+            )
+            for lm in landmarks
+        ]
+
+    result = []
+    for name, coord in landmarks.items():
+        if isinstance(coord, LandmarkCoordinate):
+            result.append(
+                LandmarkPoint(
+                    name=name,
+                    x=coord.x,
+                    y=coord.y,
+                    confidence=coord.confidence,
+                )
+            )
+        elif isinstance(coord, dict):
+            result.append(
+                LandmarkPoint(
+                    name=name,
+                    x=float(coord["x"]),
+                    y=float(coord["y"]),
+                    confidence=coord.get("confidence"),
+                )
+            )
+        elif isinstance(coord, (tuple, list)) and len(coord) >= 2:
+            result.append(LandmarkPoint(name=name, x=float(coord[0]), y=float(coord[1])))
+    return result
 
 
 class LandmarkProcessor:
@@ -21,21 +159,59 @@ class LandmarkProcessor:
         self.expected_landmark_names = {
             "right_eye",
             "left_eye",
+            "nose",
             "nose_tip",
-            "mouth_right",
+            "left_mouth",
+            "right_mouth",
             "mouth_left",
+            "mouth_right",
         }
 
-    def parse_landmarks_map(self, landmarks: List[LandmarkPoint]) -> Dict[str, Tuple[float, float]]:
-        """Maps a list of LandmarkPoints into a dictionary of {name: (x, y)}."""
-        result = {}
-        for lm in landmarks:
-            result[lm.name.lower()] = (float(lm.x), float(lm.y))
+    def parse_landmarks_map(
+        self,
+        landmarks: Union[List[Union[LandmarkPoint, Dict[str, Any]]], Dict[str, Any]],
+    ) -> Dict[str, Tuple[float, float]]:
+        """Maps a list or dict of landmarks into a normalized dictionary of {name: (x, y)}."""
+        result: Dict[str, Tuple[float, float]] = {}
+
+        if isinstance(landmarks, dict):
+            for raw_name, coord in landmarks.items():
+                name_clean = str(raw_name).strip().lower()
+                if isinstance(coord, (tuple, list)) and len(coord) >= 2:
+                    result[name_clean] = (float(coord[0]), float(coord[1]))
+                elif isinstance(coord, dict) and "x" in coord and "y" in coord:
+                    result[name_clean] = (float(coord["x"]), float(coord["y"]))
+                elif hasattr(coord, "x") and hasattr(coord, "y"):
+                    result[name_clean] = (float(coord.x), float(coord.y))
+
+        elif isinstance(landmarks, list):
+            for lm in landmarks:
+                if isinstance(lm, LandmarkPoint):
+                    result[lm.name.lower()] = (float(lm.x), float(lm.y))
+                elif isinstance(lm, dict) and "name" in lm and "x" in lm and "y" in lm:
+                    result[str(lm["name"]).lower()] = (float(lm["x"]), float(lm["y"]))
+
+        # Populate bidirectional aliases
+        if "nose" in result and "nose_tip" not in result:
+            result["nose_tip"] = result["nose"]
+        elif "nose_tip" in result and "nose" not in result:
+            result["nose"] = result["nose_tip"]
+
+        if "left_mouth" in result and "mouth_left" not in result:
+            result["mouth_left"] = result["left_mouth"]
+        elif "mouth_left" in result and "left_mouth" not in result:
+            result["left_mouth"] = result["mouth_left"]
+
+        if "right_mouth" in result and "mouth_right" not in result:
+            result["mouth_right"] = result["right_mouth"]
+        elif "mouth_right" in result and "right_mouth" not in result:
+            result["right_mouth"] = result["mouth_right"]
+
         return result
 
     def compute_metrics(
         self,
-        landmarks: List[LandmarkPoint],
+        landmarks: Union[List[Union[LandmarkPoint, Dict[str, Any]]], Dict[str, Any]],
     ) -> Optional[FacialLandmarkMetrics]:
         """
         Computes geometric and spatial metrics from 5 canonical facial landmarks:
@@ -50,8 +226,14 @@ class LandmarkProcessor:
 
         lm_map = self.parse_landmarks_map(landmarks)
 
-        # Ensure all 5 essential points are present
-        if not all(name in lm_map for name in ("right_eye", "left_eye", "nose_tip", "mouth_right", "mouth_left")):
+        # Ensure all 5 essential facial regions are present (resolves aliases)
+        has_eyes = "right_eye" in lm_map and "left_eye" in lm_map
+        has_nose = "nose" in lm_map or "nose_tip" in lm_map
+        has_mouth = ("left_mouth" in lm_map or "mouth_left" in lm_map) and (
+            "right_mouth" in lm_map or "mouth_right" in lm_map
+        )
+
+        if not (has_eyes and has_nose and has_mouth):
             return None
 
         re_x, re_y = lm_map["right_eye"]
@@ -97,7 +279,7 @@ class LandmarkProcessor:
 
     def extract_crop_relative_landmarks(
         self,
-        landmarks: List[LandmarkPoint],
+        landmarks: Union[List[LandmarkPoint], Dict[str, Any]],
         crop_origin: Tuple[float, float],
     ) -> List[LandmarkPoint]:
         """
@@ -105,8 +287,9 @@ class LandmarkProcessor:
         crop_origin is (crop_x1, crop_y1).
         """
         x_off, y_off = crop_origin
+        lm_list = landmarks_to_list(landmarks)
         relative_landmarks = []
-        for lm in landmarks:
+        for lm in lm_list:
             relative_landmarks.append(
                 LandmarkPoint(
                     name=lm.name,
@@ -122,6 +305,8 @@ class LandmarkProcessor:
 _default_processor = LandmarkProcessor()
 
 
-def compute_landmark_metrics(landmarks: List[LandmarkPoint]) -> Optional[FacialLandmarkMetrics]:
-    """Computes geometric distance, tilt, and symmetry metrics from 5 facial landmarks."""
+def compute_landmark_metrics(
+    landmarks: Union[List[Union[LandmarkPoint, Dict[str, Any]]], Dict[str, Any]],
+) -> Optional[FacialLandmarkMetrics]:
+    """Computes geometric distance, tilt, and symmetry metrics from facial landmarks."""
     return _default_processor.compute_metrics(landmarks)

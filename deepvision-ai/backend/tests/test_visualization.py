@@ -288,7 +288,8 @@ def test_visualize_cli_script_execution(tmp_path):
         "--confidence", "0.50",
     ]
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
+    backend_dir = str(Path(__file__).resolve().parent.parent)
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=backend_dir)
     assert result.returncode == 0, f"CLI script failed with error: {result.stderr}"
     assert "Faces Detected:  1" in result.stdout
     assert "[SUCCESS] Annotated image written to:" in result.stdout

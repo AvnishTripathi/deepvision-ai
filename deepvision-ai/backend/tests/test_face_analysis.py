@@ -14,7 +14,7 @@ import pytest
 from httpx import AsyncClient, ASGITransport
 
 from app.main import app
-from app.schemas.ai import BoundingBox, LandmarkPoint, FaceQualityScore
+from app.schemas.ai import BoundingBox, LandmarkPoint, LandmarkCoordinate, FaceQualityScore
 from app.ai.detection.schemas import FaceDetection
 from app.ai.analysis.schemas import (
     PoseCategory,
@@ -34,6 +34,10 @@ from app.ai.analysis.schemas import (
 from app.ai.analysis.landmarks import (
     LandmarkProcessor,
     compute_landmark_metrics,
+    landmarks_to_dict,
+    landmarks_to_list,
+    normalize_landmark_name,
+    STANDARD_LANDMARK_NAMES,
 )
 from app.ai.analysis.pose import (
     HeadPoseEstimator,
@@ -161,6 +165,112 @@ class TestLandmarkMetrics:
         assert rel[0].y == 20.0
         assert rel[1].x == 100.0
         assert rel[1].y == 20.0
+
+    def test_landmarks_to_dict_canonical_5_points(self):
+        landmarks = [
+            LandmarkPoint(name="left_eye", x=150.0, y=180.0),
+            LandmarkPoint(name="right_eye", x=220.0, y=180.0),
+            LandmarkPoint(name="nose", x=185.0, y=220.0),
+            LandmarkPoint(name="left_mouth", x=160.0, y=260.0),
+            LandmarkPoint(name="right_mouth", x=210.0, y=260.0),
+        ]
+        structured = landmarks_to_dict(landmarks)
+        assert isinstance(structured, dict)
+        assert len(structured) == 5
+        assert "left_eye" in structured
+        assert "right_eye" in structured
+        assert "nose" in structured
+        assert "left_mouth" in structured
+        assert "right_mouth" in structured
+        assert structured["left_eye"].x == 150.0
+        assert structured["left_eye"].y == 180.0
+        assert structured["right_eye"].x == 220.0
+        assert structured["right_eye"].y == 180.0
+        assert structured["nose"].x == 185.0
+        assert structured["nose"].y == 220.0
+
+    def test_landmarks_to_dict_alias_normalization(self):
+        # Model returns nose_tip, mouth_left, mouth_right
+        landmarks = [
+            LandmarkPoint(name="right_eye", x=220.0, y=180.0),
+            LandmarkPoint(name="left_eye", x=150.0, y=180.0),
+            LandmarkPoint(name="nose_tip", x=185.0, y=220.0),
+            LandmarkPoint(name="mouth_left", x=160.0, y=260.0),
+            LandmarkPoint(name="mouth_right", x=210.0, y=260.0),
+        ]
+        structured = landmarks_to_dict(landmarks)
+        # Should be accessible via standard canonical names
+        assert "nose" in structured
+        assert "left_mouth" in structured
+        assert "right_mouth" in structured
+        assert structured["nose"].x == 185.0
+        assert structured["left_mouth"].x == 160.0
+        assert structured["right_mouth"].x == 210.0
+
+    def test_landmarks_to_dict_subset_never_invents_missing(self):
+        # Model only returns 3 landmarks (like in user prompt example)
+        landmarks = [
+            LandmarkPoint(name="left_eye", x=150.0, y=180.0),
+            LandmarkPoint(name="right_eye", x=220.0, y=180.0),
+            LandmarkPoint(name="nose", x=185.0, y=220.0),
+        ]
+        structured = landmarks_to_dict(landmarks)
+        assert len(structured) == 3
+        assert "left_mouth" not in structured
+        assert "right_mouth" not in structured
+        assert structured["left_eye"].x == 150.0
+        assert structured["right_eye"].x == 220.0
+        assert structured["nose"].x == 185.0
+
+    def test_landmarks_to_dict_preserves_extended_landmarks(self):
+        # Model returns additional landmarks (e.g. 68-point model points)
+        landmarks = [
+            LandmarkPoint(name="left_eye", x=150.0, y=180.0),
+            LandmarkPoint(name="right_eye", x=220.0, y=180.0),
+            LandmarkPoint(name="nose", x=185.0, y=220.0),
+            LandmarkPoint(name="chin", x=185.0, y=290.0),
+            LandmarkPoint(name="left_eyebrow", x=145.0, y=160.0),
+            LandmarkPoint(name="right_eyebrow", x=225.0, y=160.0),
+        ]
+        structured = landmarks_to_dict(landmarks)
+        assert len(structured) == 6
+        assert "chin" in structured
+        assert "left_eyebrow" in structured
+        assert "right_eyebrow" in structured
+        assert structured["chin"].x == 185.0
+        assert structured["chin"].y == 290.0
+
+    def test_structured_face_analysis_landmarks_dict_format(self):
+        crop = create_synthetic_face_crop(width=120, height=120)
+        bbox = BoundingBox(x1=100, y1=100, x2=220, y2=220)
+        landmarks = [
+            LandmarkPoint(name="left_eye", x=150.0, y=180.0),
+            LandmarkPoint(name="right_eye", x=220.0, y=180.0),
+            LandmarkPoint(name="nose_tip", x=185.0, y=220.0),
+            LandmarkPoint(name="mouth_left", x=160.0, y=260.0),
+            LandmarkPoint(name="mouth_right", x=210.0, y=260.0),
+        ]
+        analysis = analyze_face_comprehensive(
+            face_crop_rgb=crop,
+            bbox=bbox,
+            image_shape=(640, 640),
+            confidence=0.98,
+            landmarks=landmarks,
+            face_id="face_test",
+        )
+        assert isinstance(analysis.landmarks, dict)
+        assert "left_eye" in analysis.landmarks
+        assert "right_eye" in analysis.landmarks
+        assert "nose" in analysis.landmarks
+        assert "left_mouth" in analysis.landmarks
+        assert "right_mouth" in analysis.landmarks
+        assert analysis.landmarks["left_eye"].x == 150.0
+        assert analysis.landmarks["left_eye"].y == 180.0
+        # Check dict model_dump conforms to {landmarks: {left_eye: {x: 150, y: 180}, ...}}
+        dumped = analysis.model_dump()
+        assert dumped["landmarks"]["left_eye"]["x"] == 150.0
+        assert dumped["landmarks"]["left_eye"]["y"] == 180.0
+        assert dumped["landmarks"]["nose"]["x"] == 185.0
 
 
 # -----------------------------------------------------------------------------

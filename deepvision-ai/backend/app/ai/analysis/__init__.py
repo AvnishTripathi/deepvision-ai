@@ -21,6 +21,12 @@ from app.ai.analysis.schemas import (
 from app.ai.analysis.landmarks import (
     LandmarkProcessor,
     compute_landmark_metrics,
+    STANDARD_LANDMARK_NAMES,
+    LANDMARK_NAME_ALIASES,
+    normalize_landmark_name,
+    landmarks_to_dict,
+    format_structured_landmarks,
+    landmarks_to_list,
 )
 from app.ai.analysis.pose import (
     CANONICAL_3D_MODEL_POINTS,
@@ -59,6 +65,12 @@ __all__ = [
     # Landmark Processing
     "LandmarkProcessor",
     "compute_landmark_metrics",
+    "STANDARD_LANDMARK_NAMES",
+    "LANDMARK_NAME_ALIASES",
+    "normalize_landmark_name",
+    "landmarks_to_dict",
+    "format_structured_landmarks",
+    "landmarks_to_list",
     # 3D Head Pose
     "CANONICAL_3D_MODEL_POINTS",
     "HeadPoseEstimator",

@@ -5,7 +5,7 @@ from 2D facial landmarks using Perspective-n-Point (solvePnP).
 """
 
 import math
-from typing import List, Optional, Tuple, Dict
+from typing import List, Optional, Tuple, Dict, Any, Union
 import numpy as np
 import cv2
 
@@ -60,9 +60,8 @@ class HeadPoseEstimator:
             return None
 
         # Build 2D landmark point array mapped in matching order
-        lm_map: Dict[str, Tuple[float, float]] = {
-            lm.name.lower(): (float(lm.x), float(lm.y)) for lm in landmarks
-        }
+        from app.ai.analysis.landmarks import LandmarkProcessor
+        lm_map = LandmarkProcessor().parse_landmarks_map(landmarks)
 
         required_names = ("right_eye", "left_eye", "nose_tip", "mouth_right", "mouth_left")
         if not all(name in lm_map for name in required_names):

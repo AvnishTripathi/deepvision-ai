@@ -235,6 +235,7 @@ async def detect_faces(
             ),
             confidence=round(d.confidence, 4),
             landmarks=d.landmarks,
+            landmarks_dict=d.landmarks_dict,
         )
         for d in detection_result.detections
     ]
