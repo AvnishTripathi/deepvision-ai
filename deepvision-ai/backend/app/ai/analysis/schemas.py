@@ -57,6 +57,20 @@ class BrightnessStatus(str, Enum):
     TOO_BRIGHT = "too_bright"
 
 
+class FaceVisibility(str, Enum):
+    """
+    Qualitative face visibility classification (Step 10).
+    Engineering heuristic indicating how clearly a face is observable.
+    """
+    EXCELLENT = "excellent"
+    GOOD = "good"
+    FAIR = "fair"
+    POOR = "poor"
+
+
+VisibilityStatus = FaceVisibility
+
+
 class SizeCategory(str, Enum):
     """Categorical classification of face scale in image pixels."""
     TINY = "TINY"          # < 32px
@@ -276,6 +290,39 @@ class ClarityMetrics(BaseModel):
         return data
 
 
+class FaceVisibilityAssessment(BaseModel):
+    """
+    Detailed explainable heuristic visibility assessment breakdown (Step 10).
+    Synthesizes face size, blur, brightness, landmark availability, and landmark confidence.
+    """
+    visibility: FaceVisibility = Field(
+        ..., description="Qualitative visibility rating: excellent, good, fair, or poor"
+    )
+    visibility_score: float = Field(
+        ..., ge=0.0, le=1.0, description="Normalized composite visibility score (0.0 to 1.0)"
+    )
+    size_factor: float = Field(
+        ..., ge=0.0, le=1.0, description="Resolution and face scale factor (0.0 to 1.0)"
+    )
+    blur_factor: float = Field(
+        ..., ge=0.0, le=1.0, description="Sharpness and clarity factor (0.0 to 1.0)"
+    )
+    brightness_factor: float = Field(
+        ..., ge=0.0, le=1.0, description="Luminance and exposure factor (0.0 to 1.0)"
+    )
+    landmark_availability_factor: float = Field(
+        ..., ge=0.0, le=1.0, description="Ratio of standard facial landmarks detected (0.0 to 1.0)"
+    )
+    landmark_confidence_factor: float = Field(
+        ..., ge=0.0, le=1.0, description="Mean confidence of detected landmarks or fallback (0.0 to 1.0)"
+    )
+    details: Optional[str] = Field(
+        default=None, description="Diagnostic notes highlighting primary limiting visibility factors"
+    )
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class ComprehensiveFaceQuality(BaseModel):
     """
     Unified multi-metric face quality evaluation.
@@ -293,6 +340,12 @@ class ComprehensiveFaceQuality(BaseModel):
     grade: QualityGrade = Field(
         default=QualityGrade.GOOD, description="Qualitative face quality grade"
     )
+    visibility: Optional[FaceVisibility] = Field(
+        default=None, description="Qualitative face visibility rating (excellent, good, fair, poor)"
+    )
+    visibility_score: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0, description="Normalized composite visibility score (0.0 to 1.0)"
+    )
     clarity: Optional[ClarityMetrics] = Field(default=None, description="Detailed clarity & blur metrics")
     illumination: Optional[IlluminationMetrics] = Field(default=None, description="Detailed illumination metrics")
     size: Optional[FaceSizeMetrics] = Field(default=None, description="Detailed scale and dimension metrics")
@@ -303,11 +356,19 @@ class ComprehensiveFaceQuality(BaseModel):
 
 class StructuredFaceAnalysis(BaseModel):
     """
-    Complete structured face analysis output combining detection, geometry, pose, and quality.
+    Complete structured face analysis output combining detection, geometry, pose, quality, and visibility.
     """
     face_id: Optional[Union[str, int]] = Field(default=None, description="Face identifier")
     bbox: BoundingBox = Field(..., description="Face bounding box coordinates")
     confidence: float = Field(..., ge=0.0, le=1.0, description="Detection confidence score")
+    visibility: FaceVisibility = Field(
+        default=FaceVisibility.GOOD,
+        description="Qualitative face visibility rating (excellent, good, fair, poor)",
+    )
+    visibility_assessment: Optional[FaceVisibilityAssessment] = Field(
+        default=None,
+        description="Detailed breakdown of visibility assessment factors",
+    )
     landmarks: Dict[str, LandmarkCoordinate] = Field(
         default_factory=dict,
         description="Structured facial landmarks map {name: {x, y}}",
@@ -341,7 +402,16 @@ class StructuredFaceAnalysis(BaseModel):
             elif isinstance(raw_lm, dict):
                 from app.ai.analysis.landmarks import landmarks_to_dict
                 data["landmarks"] = landmarks_to_dict(raw_lm)
+
+            # Sync visibility from visibility_assessment if present
+            if "visibility" not in data and "visibility_assessment" in data and data["visibility_assessment"]:
+                va = data["visibility_assessment"]
+                if isinstance(va, dict) and "visibility" in va:
+                    data["visibility"] = va["visibility"]
+                elif hasattr(va, "visibility"):
+                    data["visibility"] = va.visibility
         return data
+
 
 
 class AIAnalysisResponse(BaseModel):

@@ -22,6 +22,9 @@ from app.ai.analysis.schemas import (
     BlurStatus,
     ExposureCategory,
     BrightnessStatus,
+    FaceVisibility,
+    VisibilityStatus,
+    FaceVisibilityAssessment,
     SizeCategory,
     QualityGrade,
     FacialLandmarkMetrics,
@@ -33,6 +36,7 @@ from app.ai.analysis.schemas import (
     StructuredFaceAnalysis,
     AIAnalysisResponse,
 )
+
 from app.ai.analysis.landmarks import (
     LandmarkProcessor,
     compute_landmark_metrics,
@@ -55,7 +59,9 @@ from app.ai.analysis.metrics import (
     compute_clarity_metrics,
     calculate_face_brightness,
     compute_illumination_metrics,
+    calculate_face_visibility,
 )
+
 from app.ai.analysis.quality import (
     compute_sharpness,
     compute_brightness_and_contrast,
@@ -938,4 +944,247 @@ class TestLandmarkValidationAndRobustness:
         assert analyses[2].face_id == "no_landmarks_face"
         assert analyses[2].landmark_metrics is None
         assert analyses[2].pose is None
+
+
+# -----------------------------------------------------------------------------
+# 10. Face Visibility Assessment Tests (Step 10)
+# -----------------------------------------------------------------------------
+
+class TestFaceVisibilityAssessment:
+    def test_excellent_visibility_face(self):
+        crop = create_synthetic_face_crop(width=160, height=160, blur=False)
+        bbox = BoundingBox(x1=100, y1=100, x2=260, y2=260)
+        landmarks = create_canonical_landmarks(offset_x=100.0, offset_y=100.0)
+        for lm in landmarks:
+            lm.confidence = 0.98
+
+        assessment = calculate_face_visibility(
+            face_crop_rgb=crop,
+            bbox=bbox,
+            image_shape=(1080, 1920),
+            landmarks=landmarks,
+            detection_confidence=0.99,
+        )
+
+        assert isinstance(assessment, FaceVisibilityAssessment)
+        assert assessment.visibility == FaceVisibility.EXCELLENT
+        assert assessment.visibility_score >= 0.82
+        assert assessment.size_factor >= 0.80
+        assert assessment.blur_factor >= 0.70
+        assert assessment.brightness_factor >= 0.70
+        assert assessment.landmark_availability_factor == 1.0
+        assert assessment.landmark_confidence_factor >= 0.95
+        assert "optimal" in assessment.details.lower()
+
+    def test_good_visibility_face(self):
+        # Medium size face (75x75 px)
+        crop = create_synthetic_face_crop(width=75, height=75, blur=False)
+        bbox = BoundingBox(x1=100, y1=100, x2=175, y2=175)
+        landmarks = create_canonical_landmarks(offset_x=100.0, offset_y=100.0)
+
+        assessment = calculate_face_visibility(
+            face_crop_rgb=crop,
+            bbox=bbox,
+            image_shape=(720, 1280),
+            landmarks=landmarks,
+            detection_confidence=0.90,
+        )
+
+        assert assessment.visibility in (FaceVisibility.GOOD, FaceVisibility.EXCELLENT)
+        assert assessment.visibility_score >= 0.65
+
+    def test_fair_visibility_face(self):
+        # Small face with moderate blur and partial landmarks (3 landmarks)
+        clarity = ClarityMetrics(
+            sharpness=45.0,
+            blur_score=0.48,
+            blur_status=BlurStatus.SLIGHTLY_BLURRED,
+        )
+        illum = IlluminationMetrics(
+            brightness=75.0,
+            contrast=20.0,
+            brightness_score=0.68,
+            brightness_status=BrightnessStatus.ACCEPTABLE,
+        )
+        bbox = BoundingBox(x1=50, y1=50, x2=95, y2=95)  # 45x45 px
+        partial_landmarks = [
+            LandmarkPoint(name="left_eye", x=60.0, y=60.0),
+            LandmarkPoint(name="right_eye", x=85.0, y=60.0),
+            LandmarkPoint(name="nose", x=72.0, y=75.0),
+        ]
+
+        assessment = calculate_face_visibility(
+            bbox=bbox,
+            image_shape=(1080, 1920),
+            clarity_metrics=clarity,
+            illumination_metrics=illum,
+            landmarks=partial_landmarks,
+            detection_confidence=0.75,
+        )
+
+        assert assessment.visibility == FaceVisibility.FAIR
+        assert 0.45 <= assessment.visibility_score < 0.65
+        assert assessment.landmark_availability_factor == 0.60  # 3/5
+
+
+
+
+    def test_poor_visibility_pitch_black(self):
+        # Completely dark crop (luminance = 10)
+        dark_crop = np.full((120, 120, 3), 10, dtype=np.uint8)
+        bbox = BoundingBox(x1=50, y1=50, x2=170, y2=170)
+        landmarks = create_canonical_landmarks(offset_x=50.0, offset_y=50.0)
+
+        assessment = calculate_face_visibility(
+            face_crop_rgb=dark_crop,
+            bbox=bbox,
+            image_shape=(720, 1280),
+            landmarks=landmarks,
+            detection_confidence=0.85,
+        )
+
+        assert assessment.visibility == FaceVisibility.POOR
+        assert assessment.visibility_score < 0.45
+        assert assessment.brightness_factor <= 0.50
+        assert "illumination" in assessment.details.lower()
+
+    def test_poor_visibility_heavily_blurred(self):
+        # Heavily blurred crop
+        crop = create_synthetic_face_crop(width=100, height=100, blur=True)
+        # Apply additional strong blur
+        blurred_crop = cv2.GaussianBlur(crop, (25, 25), 10.0)
+        bbox = BoundingBox(x1=50, y1=50, x2=150, y2=150)
+        landmarks = create_canonical_landmarks(offset_x=50.0, offset_y=50.0)
+
+        assessment = calculate_face_visibility(
+            face_crop_rgb=blurred_crop,
+            bbox=bbox,
+            image_shape=(720, 1280),
+            landmarks=landmarks,
+            detection_confidence=0.85,
+        )
+
+        assert assessment.visibility == FaceVisibility.POOR
+        assert assessment.visibility_score < 0.45
+        assert assessment.blur_factor <= 0.35
+        assert "blur" in assessment.details.lower()
+
+    def test_poor_visibility_tiny_scale(self):
+        # Tiny 16x16 pixel face
+        crop = np.full((16, 16, 3), 128, dtype=np.uint8)
+        bbox = BoundingBox(x1=10, y1=10, x2=26, y2=26)
+
+        assessment = calculate_face_visibility(
+            face_crop_rgb=crop,
+            bbox=bbox,
+            image_shape=(1080, 1920),
+            landmarks=None,
+            detection_confidence=0.75,
+        )
+
+        assert assessment.visibility == FaceVisibility.POOR
+        assert assessment.size_factor <= 0.30
+        assert "resolution" in assessment.details.lower() or "tiny" in assessment.details.lower()
+
+    def test_landmark_confidence_explicit_vs_fallback(self):
+        crop = create_synthetic_face_crop(width=120, height=120)
+        bbox = BoundingBox(x1=50, y1=50, x2=170, y2=170)
+
+        # Case 1: Explicit landmark confidences
+        lms_explicit = [
+            LandmarkPoint(name="left_eye", x=80.0, y=80.0, confidence=0.90),
+            LandmarkPoint(name="right_eye", x=140.0, y=80.0, confidence=0.80),
+        ]
+        ass_explicit = calculate_face_visibility(
+            face_crop_rgb=crop, bbox=bbox, image_shape=(640, 640), landmarks=lms_explicit
+        )
+        assert ass_explicit.landmark_confidence_factor == 0.85
+
+        # Case 2: Landmarks present without confidence scores -> falls back to detection_confidence
+        lms_no_conf = [
+            LandmarkPoint(name="left_eye", x=80.0, y=80.0, confidence=None),
+            LandmarkPoint(name="right_eye", x=140.0, y=80.0, confidence=None),
+        ]
+        ass_fallback = calculate_face_visibility(
+            face_crop_rgb=crop,
+            bbox=bbox,
+            image_shape=(640, 640),
+            landmarks=lms_no_conf,
+            detection_confidence=0.92,
+        )
+        assert ass_fallback.landmark_confidence_factor == 0.92
+
+        # Case 3: No landmarks at all -> falls back to halved detection confidence
+        ass_none = calculate_face_visibility(
+            face_crop_rgb=crop,
+            bbox=bbox,
+            image_shape=(640, 640),
+            landmarks=[],
+            detection_confidence=0.80,
+        )
+        assert ass_none.landmark_confidence_factor == 0.40
+
+    def test_configurable_visibility_thresholds(self):
+        crop = create_synthetic_face_crop(width=120, height=120)
+        bbox = BoundingBox(x1=50, y1=50, x2=170, y2=170)
+        landmarks = create_canonical_landmarks(offset_x=50.0, offset_y=50.0)
+
+        # Baseline
+        base = calculate_face_visibility(
+            face_crop_rgb=crop, bbox=bbox, image_shape=(640, 640), landmarks=landmarks
+        )
+
+        # Overly strict thresholds demote it
+        strict = calculate_face_visibility(
+            face_crop_rgb=crop,
+            bbox=bbox,
+            image_shape=(640, 640),
+            landmarks=landmarks,
+            excellent_threshold=base.visibility_score + 0.05,
+            good_threshold=base.visibility_score + 0.04,
+            fair_threshold=base.visibility_score + 0.02,
+        )
+        assert strict.visibility == FaceVisibility.POOR
+
+
+        # Lenient thresholds elevate lower scores
+        lenient = calculate_face_visibility(
+            face_crop_rgb=crop,
+            bbox=bbox,
+            image_shape=(640, 640),
+            landmarks=landmarks,
+            excellent_threshold=0.50,
+            good_threshold=0.40,
+            fair_threshold=0.30,
+        )
+        assert lenient.visibility == FaceVisibility.EXCELLENT
+
+    def test_integration_in_structured_face_analysis(self):
+        crop = create_synthetic_face_crop(width=140, height=140)
+        bbox = BoundingBox(x1=80, y1=80, x2=220, y2=220)
+        landmarks = create_canonical_landmarks(offset_x=80.0, offset_y=80.0)
+
+        analysis = analyze_face_comprehensive(
+            face_crop_rgb=crop,
+            bbox=bbox,
+            image_shape=(720, 1280),
+            confidence=0.97,
+            landmarks=landmarks,
+            face_id="vis_test_1",
+        )
+
+        assert isinstance(analysis.visibility, FaceVisibility)
+        assert analysis.visibility in (FaceVisibility.EXCELLENT, FaceVisibility.GOOD)
+        assert analysis.visibility_assessment is not None
+        assert analysis.visibility_assessment.visibility == analysis.visibility
+        assert analysis.quality.visibility == analysis.visibility
+        assert analysis.quality.visibility_score == analysis.visibility_assessment.visibility_score
+
+        # Verify JSON dump includes "visibility" and "visibility_assessment"
+        dumped = analysis.model_dump()
+        assert "visibility" in dumped
+        assert dumped["visibility"] in ("excellent", "good", "fair", "poor")
+        assert "visibility_assessment" in dumped
+        assert "visibility_score" in dumped["visibility_assessment"]
+
 

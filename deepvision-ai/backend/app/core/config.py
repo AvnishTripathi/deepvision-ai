@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     AI_BRIGHTNESS_MIN_ACCEPTABLE: float = 60.0
     AI_BRIGHTNESS_MAX_ACCEPTABLE: float = 200.0
 
+    # Face Visibility Assessment Thresholds (Step 10)
+    AI_VISIBILITY_EXCELLENT_THRESHOLD: float = 0.82
+    AI_VISIBILITY_GOOD_THRESHOLD: float = 0.65
+    AI_VISIBILITY_FAIR_THRESHOLD: float = 0.45
+
     # Storage Paths & Limits
     STORAGE_DIR: str = "./storage"
     MODELS_DIR: str = "./models"

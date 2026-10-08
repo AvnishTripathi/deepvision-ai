@@ -22,6 +22,8 @@ from app.ai.analysis.schemas import (
     FaceSizeMetrics,
     IlluminationMetrics,
     ClarityMetrics,
+    FaceVisibility,
+    FaceVisibilityAssessment,
 )
 from app.ai.analysis.landmarks import (
     compute_landmark_metrics,
@@ -32,7 +34,9 @@ from app.ai.analysis.metrics import (
     compute_face_size_metrics,
     compute_clarity_metrics,
     compute_illumination_metrics,
+    calculate_face_visibility,
 )
+
 import logging
 logger = logging.getLogger("deepvision.ai.analysis")
 
@@ -217,6 +221,18 @@ def analyze_face_comprehensive(
         (pose.frontality_score >= 0.40 if pose else True)
     )
 
+    # 7. Face Visibility Assessment (Step 10)
+    visibility_assessment = calculate_face_visibility(
+        face_crop_rgb=face_crop_rgb,
+        bbox=bbox,
+        image_shape=image_shape,
+        size_metrics=size,
+        clarity_metrics=clarity,
+        illumination_metrics=illum,
+        landmarks=validated_landmarks,
+        detection_confidence=confidence,
+    )
+
     quality_score = ComprehensiveFaceQuality(
         overall_quality=overall_quality,
         sharpness=clarity.sharpness,
@@ -224,6 +240,8 @@ def analyze_face_comprehensive(
         contrast=illum.contrast,
         is_usable=is_usable,
         grade=grade,
+        visibility=visibility_assessment.visibility,
+        visibility_score=visibility_assessment.visibility_score,
         clarity=clarity,
         illumination=illum,
         size=size,
@@ -234,6 +252,8 @@ def analyze_face_comprehensive(
         face_id=face_id,
         bbox=bbox,
         confidence=round(confidence, 4),
+        visibility=visibility_assessment.visibility,
+        visibility_assessment=visibility_assessment,
         landmarks=validated_landmarks or [],
         landmark_metrics=lm_metrics,
         pose=pose,
@@ -242,6 +262,7 @@ def analyze_face_comprehensive(
         clarity=clarity,
         quality=quality_score,
     )
+
 
 
 class FaceAnalyzer:
