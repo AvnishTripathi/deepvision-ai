@@ -344,7 +344,45 @@ class AIDetectionResponse(BaseModel):
     timing: Optional[PerformanceBreakdown] = Field(default=None, description="Granular latency telemetry breakdown (ms)")
     request_id: Optional[str] = Field(default=None, description="Unique request trace identifier")
 
-    model_config = ConfigDict(populate_by_name=True)
+    model_config = ConfigDict(
+        populate_by_name=True,
+        json_schema_extra={
+            "example": {
+                "success": True,
+                "model": "yunet-v1.0",
+                "device": "CPU",
+                "image": {"width": 1920, "height": 1080},
+                "processing_time_ms": 42.3,
+                "face_count": 1,
+                "faces": [
+                    {
+                        "face_id": None,
+                        "bbox": {
+                            "x1": 100.0,
+                            "y1": 120.0,
+                            "x2": 320.0,
+                            "y2": 360.0,
+                        },
+                        "confidence": 0.96,
+                        "landmarks": [
+                            {"name": "right_eye", "x": 145.2, "y": 178.5, "confidence": 0.98},
+                            {"name": "left_eye", "x": 255.4, "y": 175.1, "confidence": 0.97},
+                            {"name": "nose_tip", "x": 202.1, "y": 230.4, "confidence": 0.96},
+                            {"name": "mouth_right", "x": 158.3, "y": 288.7, "confidence": 0.95},
+                            {"name": "mouth_left", "x": 242.0, "y": 286.2, "confidence": 0.95},
+                        ],
+                    }
+                ],
+                "timing": {
+                    "preprocessing_time_ms": 3.8,
+                    "inference_time_ms": 28.1,
+                    "postprocessing_time_ms": 2.4,
+                    "total_processing_time_ms": 42.3,
+                },
+                "request_id": "req_8f14b2d5-e36c-4861-9c88",
+            }
+        },
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -359,11 +397,75 @@ class AIDetectionResponse(BaseModel):
         return self.timing.total_processing_time_ms if self.timing else self.processing_time_ms
 
 
-class AIDetectionErrorResponse(BaseModel):
-    """Development error response returned when detector is not configured or operational."""
+class ClientValidationErrorResponse(BaseModel):
+    """Schema returned on HTTP 400 when an image is corrupt, unsupported, or has invalid parameters."""
     success: bool = Field(False, description="Failure indicator")
-    error: str = Field(..., description="Error identifier code")
+    error: str = Field(..., description="Machine-readable error code")
+    message: str = Field(..., description="Human-readable explanation of the validation failure")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": False,
+                "error": "invalid_image",
+                "message": "The uploaded file is corrupt, truncated, or not a recognized image format.",
+            }
+        }
+    )
+
+
+class PayloadTooLargeErrorResponse(BaseModel):
+    """Schema returned on HTTP 413 when an uploaded image exceeds payload size limits."""
+    success: bool = Field(False, description="Failure indicator")
+    error: str = Field("payload_too_large", description="Machine-readable error code")
     message: str = Field(..., description="Human-readable explanation")
-    detail: str = Field(..., description="Technical detail message")
-    model: Optional[str] = Field(None, description="Target model name")
-    device: Optional[str] = Field(None, description="Configured device")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": False,
+                "error": "payload_too_large",
+                "message": "Uploaded file exceeds maximum permitted size of 10.0 MB.",
+            }
+        }
+    )
+
+
+class InternalInferenceErrorResponse(BaseModel):
+    """Schema returned on HTTP 500 when an unexpected internal inference failure occurs."""
+    success: bool = Field(False, description="Failure indicator")
+    error: str = Field("inference_error", description="Machine-readable error code")
+    message: str = Field(..., description="Sanitized error description")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": False,
+                "error": "inference_error",
+                "message": "An error occurred during AI inference processing.",
+            }
+        }
+    )
+
+
+class AIDetectionErrorResponse(BaseModel):
+    """Error response returned on HTTP 503 when the detector model is not configured or operational."""
+    success: bool = Field(False, description="Failure indicator")
+    error: str = Field(..., description="Machine-readable error code")
+    message: str = Field(..., description="Human-readable explanation")
+    detail: Optional[str] = Field(None, description="Diagnostic instructions")
+    model: Optional[str] = Field(None, description="Configured model identifier")
+    device: Optional[str] = Field(None, description="Configured inference hardware")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "success": False,
+                "error": "detector_not_configured",
+                "message": "AI face detection model is not operational. The detector model weights are not configured.",
+                "detail": "Please place model weights in 'models/face_detection/' as documented in docs/model-setup.md.",
+                "model": "yunet-v1.0",
+                "device": "CPU",
+            }
+        }
+    )

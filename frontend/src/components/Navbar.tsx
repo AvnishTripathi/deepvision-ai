@@ -25,12 +25,21 @@ const Navbar = () => {
             <div className="ml-10 flex items-baseline space-x-4">
               <Link to="/" className="hover:bg-slate-700/50 px-3 py-2 rounded-md text-sm font-medium transition-colors">Home</Link>
               <Link to="/detect" className="hover:bg-slate-700/50 px-3 py-2 rounded-md text-sm font-medium transition-colors">Detect</Link>
+              <Link to="/dashboard" className="hover:bg-slate-700/50 px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1.5">
+                <LayoutDashboard className="w-4 h-4 text-primary-400" /> Dashboard
+              </Link>
+              <a 
+                href="http://localhost:8000/docs" 
+                target="_blank" 
+                rel="noreferrer" 
+                className="hover:bg-slate-700/50 px-3 py-2 rounded-md text-sm font-medium transition-colors text-slate-300 hover:text-white"
+              >
+                API Docs
+              </a>
               
               {user ? (
                 <>
-                  <Link to="/dashboard" className="hover:bg-slate-700/50 px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1">
-                    <LayoutDashboard className="w-4 h-4" /> Dashboard
-                  </Link>
+                  <span className="text-slate-400 text-sm px-2">Hi, {user.name || user.email.split('@')[0]}</span>
                   <button onClick={logout} className="hover:bg-danger-500/20 text-danger-500 px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-1">
                     <LogOut className="w-4 h-4" /> Logout
                   </button>
@@ -59,9 +68,20 @@ const Navbar = () => {
           <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
             <Link to="/" onClick={() => setIsOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700/50">Home</Link>
             <Link to="/detect" onClick={() => setIsOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700/50">Detect</Link>
+            <Link to="/dashboard" onClick={() => setIsOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700/50 flex items-center gap-2">
+              <LayoutDashboard className="w-4 h-4 text-primary-400" /> Dashboard
+            </Link>
+            <a 
+              href="http://localhost:8000/docs" 
+              target="_blank" 
+              rel="noreferrer" 
+              onClick={() => setIsOpen(false)}
+              className="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700/50 text-slate-300"
+            >
+              API Docs
+            </a>
             {user ? (
               <>
-                <Link to="/dashboard" onClick={() => setIsOpen(false)} className="block px-3 py-2 rounded-md text-base font-medium hover:bg-slate-700/50">Dashboard</Link>
                 <button onClick={() => { logout(); setIsOpen(false); }} className="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-danger-500 hover:bg-danger-500/20">Logout</button>
               </>
             ) : (

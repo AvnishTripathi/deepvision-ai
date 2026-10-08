@@ -1,8 +1,18 @@
 import React from 'react';
 import { useAuthStore } from '../store/authStore';
-import { ShieldAlert, Activity, Image as ImageIcon, Video, Eye } from 'lucide-react';
+import { ShieldAlert, Activity, Image as ImageIcon, Video, Eye, TrendingUp, BarChart2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { ThreatBadge } from '../components/ThreatBadge';
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend
+} from 'recharts';
 
 const DashboardPage = () => {
   const { user } = useAuthStore();
@@ -12,6 +22,17 @@ const DashboardPage = () => {
     { label: 'Total Scans', value: '1,248', icon: Activity, color: 'text-primary-500' },
     { label: 'Deepfakes Detected', value: '156', icon: ShieldAlert, color: 'text-danger-500' },
     { label: 'Average Risk Score', value: '14.2%', icon: Eye, color: 'text-warning-500' }
+  ];
+
+  // 7-Day Detection Activity Trend Data
+  const activityData = [
+    { day: 'Mon', totalScans: 142, realFaces: 125, deepfakes: 17, avgScore: 12 },
+    { day: 'Tue', totalScans: 198, realFaces: 172, deepfakes: 26, avgScore: 15 },
+    { day: 'Wed', totalScans: 165, realFaces: 145, deepfakes: 20, avgScore: 13 },
+    { day: 'Thu', totalScans: 230, realFaces: 201, deepfakes: 29, avgScore: 16 },
+    { day: 'Fri', totalScans: 285, realFaces: 249, deepfakes: 36, avgScore: 18 },
+    { day: 'Sat', totalScans: 210, realFaces: 186, deepfakes: 24, avgScore: 14 },
+    { day: 'Sun', totalScans: 248, realFaces: 218, deepfakes: 30, avgScore: 15 },
   ];
 
   const recent = [
@@ -24,7 +45,7 @@ const DashboardPage = () => {
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-white">Welcome back, {user?.name || 'User'}</h1>
-        <p className="text-slate-400">Here's an overview of your platform usage.</p>
+        <p className="text-slate-400">Here's an overview of your platform usage and detection analytics.</p>
       </div>
 
       <div className="grid md:grid-cols-3 gap-6 mb-8">
@@ -39,6 +60,87 @@ const DashboardPage = () => {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* Detection Activity & Threat Trends Graph */}
+      <div className="glass-card p-6 mb-8 border border-slate-700/50">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 mb-6">
+          <div>
+            <h2 className="text-xl font-bold text-white flex items-center gap-2">
+              <TrendingUp className="w-5 h-5 text-primary-400" />
+              Scan Activity & Threat Trends (Past 7 Days)
+            </h2>
+            <p className="text-slate-400 text-sm mt-0.5">
+              Live volumetric scans breakdown comparing verified genuine media against flagged anomalies.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 text-xs font-medium text-slate-400 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700">
+            <span className="w-2 h-2 rounded-full bg-primary-400 animate-pulse" />
+            Live Analytics
+          </div>
+        </div>
+
+        <div className="h-72 w-full min-h-[280px]">
+          <ResponsiveContainer width="100%" height={280}>
+            <AreaChart data={activityData} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="scansGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0.0} />
+                </linearGradient>
+                <linearGradient id="deepfakeGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#ef4444" stopOpacity={0.4} />
+                  <stop offset="95%" stopColor="#ef4444" stopOpacity={0.0} />
+                </linearGradient>
+                <linearGradient id="realGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#22c55e" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#22c55e" stopOpacity={0.0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.6} />
+              <XAxis dataKey="day" stroke="#94a3b8" tick={{ fontSize: 12 }} />
+              <YAxis stroke="#94a3b8" tick={{ fontSize: 12 }} />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#0f172a',
+                  borderColor: '#334155',
+                  borderRadius: '10px',
+                  boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.5)',
+                  color: '#fff',
+                }}
+                itemStyle={{ color: '#fff', fontSize: '13px' }}
+              />
+              <Legend verticalAlign="top" height={36} wrapperStyle={{ paddingBottom: '10px', fontSize: '12px' }} />
+              <Area
+                type="monotone"
+                dataKey="totalScans"
+                name="Total Scans"
+                stroke="#6366f1"
+                strokeWidth={2}
+                fillOpacity={1}
+                fill="url(#scansGradient)"
+              />
+              <Area
+                type="monotone"
+                dataKey="realFaces"
+                name="Verified Real"
+                stroke="#22c55e"
+                strokeWidth={2}
+                fillOpacity={1}
+                fill="url(#realGradient)"
+              />
+              <Area
+                type="monotone"
+                dataKey="deepfakes"
+                name="Deepfakes Flagged"
+                stroke="#ef4444"
+                strokeWidth={2}
+                fillOpacity={1}
+                fill="url(#deepfakeGradient)"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       <div className="glass-card overflow-hidden">

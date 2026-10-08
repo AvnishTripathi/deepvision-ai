@@ -23,6 +23,9 @@ from app.core.exceptions import (
 from app.schemas.ai import (
     AIDetectionResponse,
     AIDetectionErrorResponse,
+    ClientValidationErrorResponse,
+    PayloadTooLargeErrorResponse,
+    InternalInferenceErrorResponse,
     FaceBoundingBox,
     DetectedFaceItem,
     ImageDimensions,
@@ -35,31 +38,109 @@ logger = logging.getLogger("deepvision.api.ai")
 router = APIRouter(prefix="/ai", tags=["AI Detection"])
 
 
+DETECT_ENDPOINT_DESCRIPTION = """
+### DeepVision AI — High-Performance Face Detection Inference
+
+Executes state-of-the-art computer vision face detection on uploaded images using the active DeepVision model engine (YuNet / ONNX runtime).
+
+---
+
+#### 1. Image Upload
+- **Method**: `POST`
+- **Content-Type**: `multipart/form-data`
+- **File Field**: `file` (single binary image file)
+- **Optional Query Parameter**: `confidence_threshold` (float between `0.0` and `1.0`) — overrides default detection confidence threshold (default: `0.6`).
+
+---
+
+#### 2. Supported Formats & Color Spaces
+- **Container Formats**:
+  - `JPEG` (`.jpg`, `.jpeg`) — `image/jpeg`
+  - `PNG` (`.png`) — `image/png`
+  - `WebP` (`.webp`) — `image/webp`
+  - `BMP` (`.bmp`) — `image/bmp`, `image/x-ms-bmp`
+- **Color Spaces Handled**:
+  - `RGB` (Standard 3-channel color)
+  - `RGBA` (4-channel color with alpha; transparency is cleanly composited over black)
+  - `Grayscale` (1-channel; converted to 3-channel BGR/RGB for model compatibility)
+- **Privacy & Safety**: Zero permanent disk storage of user uploads. All inference occurs in volatile memory.
+
+---
+
+#### 3. Size Limits & Protection
+- **Maximum File Size**: **10 MB** (enforced by streaming chunk reader; aborts immediately with HTTP 413 if exceeded).
+- **Maximum Image Dimensions**: **4096 × 4096 pixels** (enforced to prevent decompression bomb / memory exhaustion attacks).
+
+---
+
+#### 4. Response Structure
+Returns standard `AIDetectionResponse`:
+- `success` (*bool*): True when detection successfully completes.
+- `model` (*str*): Active model identifier (e.g., `yunet-v1.0`).
+- `device` (*str*): Hardware device used for inference (e.g., `CPU`, `CUDA`).
+- `image` (*object*): Original image dimensions `{ "width": int, "height": int }`.
+- `processing_time_ms` (*float*): Total end-to-end execution time in milliseconds.
+- `face_count` (*int*): Count of detected faces passing the confidence threshold.
+- `faces` (*array*): List of detected face objects:
+  - `face_id` (*null | string*): Face tracking identifier.
+  - `bbox` (*object*): Absolute pixel bounding box `{ "x1": float, "y1": float, "x2": float, "y2": float }` validated and clipped to original image bounds.
+  - `confidence` (*float*): Detection confidence score (`0.0` to `1.0`).
+  - `landmarks` (*array | null*): 5 facial landmark points (eyes, nose, mouth corners) if available.
+- `timing` (*object*): Granular latency breakdown across stages:
+  - `preprocessing_time_ms`: Stream decoding, safety checks, and color conversion.
+  - `inference_time_ms`: Neural network forward pass.
+  - `postprocessing_time_ms`: Non-Maximum Suppression (NMS), bounding box clipping, and coordinate transformation.
+  - `total_processing_time_ms`: Sum of all pipeline stages.
+
+---
+
+#### 5. Possible Errors
+- **`400 Bad Request`**: Uploaded file is corrupt, truncated, unsupported format, zero-byte empty file, or dimension exceeds 4096px.
+- **`413 Payload Too Large`**: Uploaded file exceeds the 10 MB payload cap.
+- **`500 Internal Server Error`**: Unexpected runtime inference error (internal stack traces sanitized).
+- **`503 Service Unavailable`**: AI detector model is not configured or loaded into memory.
+"""
+
+
 @router.post(
     "/detect",
     response_model=AIDetectionResponse,
     responses={
-        200: {"description": "Face detection analysis completed successfully"},
-        400: {"description": "Invalid, corrupted, or unsupported image input"},
-        413: {"description": "Image payload size exceeds configured limits"},
-        500: {"description": "Internal model evaluation error (sanitized)"},
+        200: {
+            "model": AIDetectionResponse,
+            "description": "Face detection analysis completed successfully.",
+        },
+        400: {
+            "model": ClientValidationErrorResponse,
+            "description": "Invalid, corrupted, unsupported image input or parameter validation error.",
+        },
+        413: {
+            "model": PayloadTooLargeErrorResponse,
+            "description": "Image payload size exceeds the 10 MB maximum limit.",
+        },
+        500: {
+            "model": InternalInferenceErrorResponse,
+            "description": "Internal AI inference evaluation error (sanitized).",
+        },
         503: {
             "model": AIDetectionErrorResponse,
-            "description": "Detector model is not configured or operational",
+            "description": "AI detector model is not configured or operational.",
         },
     },
     summary="Execute Face Detection Inference",
-    description=(
-        "Analyzes an uploaded image and returns detected faces, bounding boxes, "
-        "confidence scores, and inference telemetry. If the AI detector model is not "
-        "configured or operational, returns a structured development error response."
-    ),
+    description=DETECT_ENDPOINT_DESCRIPTION,
 )
 async def detect_faces(
     request: Request,
-    file: UploadFile = File(..., description="Image file to analyze for face detection"),
+    file: UploadFile = File(
+        ...,
+        description="Image file to analyze (JPEG, PNG, WebP, BMP; max 10MB, max 4096px)",
+    ),
     confidence_threshold: Optional[float] = Query(
-        None, ge=0.0, le=1.0, description="Optional minimum confidence threshold override"
+        None,
+        ge=0.0,
+        le=1.0,
+        description="Optional minimum confidence score threshold (0.0 to 1.0; overrides model default)",
     ),
     ai_service: AIService = Depends(get_ai_service),
 ):
