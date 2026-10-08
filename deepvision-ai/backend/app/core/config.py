@@ -58,6 +58,11 @@ class Settings(BaseSettings):
     AI_VISIBILITY_GOOD_THRESHOLD: float = 0.65
     AI_VISIBILITY_FAIR_THRESHOLD: float = 0.45
 
+    # Face Quality Classification Thresholds (Step 13)
+    AI_QUALITY_EXCELLENT_THRESHOLD: float = 80.0
+    AI_QUALITY_GOOD_THRESHOLD: float = 65.0
+    AI_QUALITY_ACCEPTABLE_THRESHOLD: float = 45.0
+
     # Storage Paths & Limits
     STORAGE_DIR: str = "./storage"
     MODELS_DIR: str = "./models"
@@ -136,6 +141,18 @@ class Settings(BaseSettings):
         if int(v) < 64:
             raise ValueError(f"AI_MAX_IMAGE_DIMENSION must be at least 64px, got {v}")
         return int(v)
+
+    @field_validator(
+        "AI_QUALITY_EXCELLENT_THRESHOLD",
+        "AI_QUALITY_GOOD_THRESHOLD",
+        "AI_QUALITY_ACCEPTABLE_THRESHOLD",
+    )
+    @classmethod
+    def validate_quality_threshold(cls, v: float) -> float:
+        """Ensures quality thresholds are within the 0 to 100 range."""
+        if not (0.0 <= v <= 100.0):
+            raise ValueError(f"Quality threshold must be between 0.0 and 100.0, got {v}")
+        return float(v)
 
     @field_validator("AI_ENABLE_GPU", mode="before")
     @classmethod

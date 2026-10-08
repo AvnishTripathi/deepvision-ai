@@ -28,6 +28,7 @@ from app.ai.analysis.schemas import (
     FaceQualityFactors,
     SizeCategory,
     QualityGrade,
+    QualityClassification,
     FacialLandmarkMetrics,
     HeadPoseEstimation,
     FaceSizeMetrics,
@@ -70,6 +71,7 @@ from app.ai.analysis.quality import (
     compute_brightness_and_contrast,
     analyze_face_quality,
     evaluate_quality_grade,
+    classify_face_quality,
     calculate_face_quality_score,
     analyze_face_comprehensive,
     FaceAnalyzer,
@@ -1356,5 +1358,118 @@ class TestFaceVisibilityAssessment:
         assert dumped["visibility"] in ("excellent", "good", "fair", "poor")
         assert "visibility_assessment" in dumped
         assert "visibility_score" in dumped["visibility_assessment"]
+
+
+# -----------------------------------------------------------------------------
+# 11. Face Quality Classification Tests (Step 13)
+# -----------------------------------------------------------------------------
+
+class TestQualityClassification:
+    def test_default_classification_boundaries(self):
+        # Default thresholds: excellent >= 80, good >= 65, acceptable >= 45, poor < 45
+        assert classify_face_quality(95.0) == QualityClassification.EXCELLENT
+        assert classify_face_quality(80.0) == QualityClassification.EXCELLENT
+        assert classify_face_quality(79.9) == QualityClassification.GOOD
+        assert classify_face_quality(65.0) == QualityClassification.GOOD
+        assert classify_face_quality(64.9) == QualityClassification.ACCEPTABLE
+        assert classify_face_quality(45.0) == QualityClassification.ACCEPTABLE
+        assert classify_face_quality(44.9) == QualityClassification.POOR
+        assert classify_face_quality(20.0) == QualityClassification.POOR
+        assert classify_face_quality(0.0) == QualityClassification.POOR
+
+    def test_normalized_score_scale_support(self):
+        # 0.0 - 1.0 unit interval input support
+        assert classify_face_quality(0.95) == QualityClassification.EXCELLENT
+        assert classify_face_quality(0.80) == QualityClassification.EXCELLENT
+        assert classify_face_quality(0.75) == QualityClassification.GOOD
+        assert classify_face_quality(0.65) == QualityClassification.GOOD
+        assert classify_face_quality(0.50) == QualityClassification.ACCEPTABLE
+        assert classify_face_quality(0.45) == QualityClassification.ACCEPTABLE
+        assert classify_face_quality(0.30) == QualityClassification.POOR
+        assert classify_face_quality(0.10) == QualityClassification.POOR
+
+    def test_configurable_custom_thresholds(self):
+        # Strict enterprise enrollment thresholds
+        custom_ex = 90.0
+        custom_gd = 75.0
+        custom_acc = 55.0
+
+        # 85.0 is EXCELLENT under defaults (>= 80), but GOOD under strict (85 < 90)
+        assert classify_face_quality(
+            85.0,
+            excellent_threshold=custom_ex,
+            good_threshold=custom_gd,
+            acceptable_threshold=custom_acc,
+        ) == QualityClassification.GOOD
+
+        # 70.0 is GOOD under defaults (>= 65), but ACCEPTABLE under strict (70 < 75)
+        assert classify_face_quality(
+            70.0,
+            excellent_threshold=custom_ex,
+            good_threshold=custom_gd,
+            acceptable_threshold=custom_acc,
+        ) == QualityClassification.ACCEPTABLE
+
+        # 50.0 is ACCEPTABLE under defaults (>= 45), but POOR under strict (50 < 55)
+        assert classify_face_quality(
+            50.0,
+            excellent_threshold=custom_ex,
+            good_threshold=custom_gd,
+            acceptable_threshold=custom_acc,
+        ) == QualityClassification.POOR
+
+    def test_configurable_normalized_thresholds(self):
+        # Decimals passed as thresholds: 0.90, 0.75, 0.55
+        assert classify_face_quality(
+            85.0,
+            excellent_threshold=0.90,
+            good_threshold=0.75,
+            acceptable_threshold=0.55,
+        ) == QualityClassification.GOOD
+
+    def test_integration_in_structured_face_analysis(self):
+        crop = create_synthetic_face_crop(width=140, height=140)
+        bbox = BoundingBox(x1=80, y1=80, x2=220, y2=220)
+        landmarks = create_canonical_landmarks(offset_x=80.0, offset_y=80.0)
+
+        analysis = analyze_face_comprehensive(
+            face_crop_rgb=crop,
+            bbox=bbox,
+            image_shape=(720, 1280),
+            confidence=0.98,
+            landmarks=landmarks,
+            face_id="class_test_1",
+        )
+
+        assert isinstance(analysis.classification, QualityClassification)
+        assert analysis.classification in (QualityClassification.EXCELLENT, QualityClassification.GOOD)
+        assert analysis.quality.classification == analysis.classification
+
+        # Verify JSON serialization includes "classification"
+        dumped = analysis.model_dump()
+        assert "classification" in dumped
+        assert dumped["classification"] in ("excellent", "good", "acceptable", "poor")
+        assert "classification" in dumped["quality"]
+        assert dumped["quality"]["classification"] == dumped["classification"]
+
+    def test_severely_degraded_face_classified_as_poor(self):
+        # Pitch-black crop simulates completely degraded face
+        dark_crop = np.zeros((100, 100, 3), dtype=np.uint8)
+        bbox = BoundingBox(x1=50, y1=50, x2=150, y2=150)
+        landmarks = create_canonical_landmarks(offset_x=50.0, offset_y=50.0)
+
+        analysis = analyze_face_comprehensive(
+            face_crop_rgb=dark_crop,
+            bbox=bbox,
+            image_shape=(640, 640),
+            confidence=0.50,
+            landmarks=landmarks,
+            face_id="dark_test",
+        )
+
+        assert analysis.classification == QualityClassification.POOR
+        assert analysis.quality.classification == QualityClassification.POOR
+        assert analysis.quality_score < 45.0
+
 
 

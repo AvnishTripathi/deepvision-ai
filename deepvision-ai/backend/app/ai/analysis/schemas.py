@@ -88,6 +88,25 @@ class QualityGrade(str, Enum):
     UNUSABLE = "UNUSABLE"    # < 0.30
 
 
+class QualityClassification(str, Enum):
+    """
+    Overall qualitative face quality classification (Step 13).
+    Categorizes the measurable quality score (0 - 100) into standardized tiers:
+    - excellent: High-definition, sharp, optimally exposed, strong symmetry & landmarks (>= 80.0)
+    - good: Minor imperfections, fully suitable for recognition and detection (>= 65.0)
+    - acceptable: Marginal lighting or mild blur, but retains discernible facial geometry (>= 45.0)
+    - poor: Severely degraded, blurry, extreme exposure, or critical defects (< 45.0)
+    """
+    EXCELLENT = "excellent"
+    GOOD = "good"
+    ACCEPTABLE = "acceptable"
+    POOR = "poor"
+
+
+FaceQualityClassification = QualityClassification
+QualityCategory = QualityClassification
+
+
 class FacialLandmarkMetrics(BaseModel):
     """Geometric and spatial relationship metrics computed from facial landmarks."""
     interpupillary_distance_px: float = Field(
@@ -370,6 +389,10 @@ class ComprehensiveFaceQuality(BaseModel):
     is_usable: bool = Field(True, description="Whether face quality meets minimum processing threshold")
 
     # Extended granular diagnostic breakdowns
+    classification: QualityClassification = Field(
+        default=QualityClassification.GOOD,
+        description="Overall qualitative face quality classification (excellent, good, acceptable, poor)",
+    )
     grade: QualityGrade = Field(
         default=QualityGrade.GOOD, description="Qualitative face quality grade"
     )
@@ -397,6 +420,15 @@ class ComprehensiveFaceQuality(BaseModel):
                 data["quality_score"] = round(float(data["overall_quality"]) * 100.0, 1)
             elif "overall_quality" not in data and "quality_score" in data and data["quality_score"] is not None:
                 data["overall_quality"] = round(float(data["quality_score"]) / 100.0, 3)
+
+            # Sync classification from quality_score if omitted
+            if "classification" not in data or data["classification"] is None:
+                score = data.get("quality_score")
+                if score is None and data.get("overall_quality") is not None:
+                    score = float(data["overall_quality"]) * 100.0
+                if score is not None:
+                    from app.ai.analysis.quality import classify_face_quality
+                    data["classification"] = classify_face_quality(float(score))
         return data
 
 
@@ -409,6 +441,10 @@ class StructuredFaceAnalysis(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="Detection confidence score")
     quality_score: float = Field(
         default=0.0, ge=0.0, le=100.0, description="Overall face quality score on a 0-100 scale"
+    )
+    classification: QualityClassification = Field(
+        default=QualityClassification.GOOD,
+        description="Overall qualitative face quality classification (excellent, good, acceptable, poor)",
     )
     visibility: FaceVisibility = Field(
         default=FaceVisibility.GOOD,
@@ -471,6 +507,17 @@ class StructuredFaceAnalysis(BaseModel):
                     data["quality_score"] = round(float(q["overall_quality"]) * 100.0, 1)
                 elif hasattr(q, "overall_quality"):
                     data["quality_score"] = round(float(q.overall_quality) * 100.0, 1)
+
+            # Sync classification from quality if present
+            if "classification" not in data or data["classification"] is None:
+                q = data.get("quality")
+                if isinstance(q, dict) and "classification" in q:
+                    data["classification"] = q["classification"]
+                elif hasattr(q, "classification"):
+                    data["classification"] = q.classification
+                elif "quality_score" in data and data["quality_score"] is not None:
+                    from app.ai.analysis.quality import classify_face_quality
+                    data["classification"] = classify_face_quality(float(data["quality_score"]))
         return data
 
 

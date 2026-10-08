@@ -9,6 +9,7 @@ import numpy as np
 import cv2
 
 
+from app.core.config import settings
 from app.schemas.ai import (
     BoundingBox,
     LandmarkPoint,
@@ -17,6 +18,7 @@ from app.schemas.ai import (
 from app.ai.analysis.schemas import (
     ComprehensiveFaceQuality,
     QualityGrade,
+    QualityClassification,
     StructuredFaceAnalysis,
     FacialLandmarkMetrics,
     HeadPoseEstimation,
@@ -134,6 +136,74 @@ def evaluate_quality_grade(overall_score: float) -> QualityGrade:
         return QualityGrade.POOR
     else:
         return QualityGrade.UNUSABLE
+
+
+def classify_face_quality(
+    quality_score: float,
+    excellent_threshold: Optional[float] = None,
+    good_threshold: Optional[float] = None,
+    acceptable_threshold: Optional[float] = None,
+) -> QualityClassification:
+    """
+    Overall qualitative face quality classification (Step 13).
+    Categorizes the measurable face quality score into:
+        - 'excellent'
+        - 'good'
+        - 'acceptable'
+        - 'poor'
+
+    Threshold assumptions (configurable):
+        - excellent: score >= excellent_threshold (default 80.0)
+        - good: score >= good_threshold (default 65.0)
+        - acceptable: score >= acceptable_threshold (default 45.0)
+        - poor: score < acceptable_threshold (< 45.0)
+
+    Thresholds are fully configurable via function arguments or application settings:
+        - settings.AI_QUALITY_EXCELLENT_THRESHOLD
+        - settings.AI_QUALITY_GOOD_THRESHOLD
+        - settings.AI_QUALITY_ACCEPTABLE_THRESHOLD
+
+    Supports both 0-100 scale (default) and normalized 0.0-1.0 scale transparently.
+    """
+    # Scale normalized scores (0.0 < score <= 1.0) to 0 - 100
+    score_100 = float(quality_score) * 100.0 if 0.0 < quality_score <= 1.0 else float(quality_score)
+    score_100 = max(0.0, min(100.0, score_100))
+
+    th_excellent = (
+        excellent_threshold
+        if excellent_threshold is not None
+        else getattr(settings, "AI_QUALITY_EXCELLENT_THRESHOLD", 80.0)
+    )
+    th_good = (
+        good_threshold
+        if good_threshold is not None
+        else getattr(settings, "AI_QUALITY_GOOD_THRESHOLD", 65.0)
+    )
+    th_acceptable = (
+        acceptable_threshold
+        if acceptable_threshold is not None
+        else getattr(settings, "AI_QUALITY_ACCEPTABLE_THRESHOLD", 45.0)
+    )
+
+    # Scale thresholds if provided in normalized 0.0 - 1.0 format
+    if 0.0 < th_excellent <= 1.0:
+        th_excellent *= 100.0
+    if 0.0 < th_good <= 1.0:
+        th_good *= 100.0
+    if 0.0 < th_acceptable <= 1.0:
+        th_acceptable *= 100.0
+
+    if score_100 >= th_excellent:
+        return QualityClassification.EXCELLENT
+    elif score_100 >= th_good:
+        return QualityClassification.GOOD
+    elif score_100 >= th_acceptable:
+        return QualityClassification.ACCEPTABLE
+    else:
+        return QualityClassification.POOR
+
+
+classify_quality = classify_face_quality
 
 
 def calculate_face_quality_score(
@@ -403,9 +473,13 @@ def analyze_face_comprehensive(
         detection_confidence=confidence,
     )
 
+    # 8. Face Quality Classification (Step 13)
+    classification = classify_face_quality(quality_score_100)
+
     quality_score = ComprehensiveFaceQuality(
         quality_score=quality_score_100,
         overall_quality=overall_quality,
+        classification=classification,
         factors=quality_factors,
         sharpness=clarity.sharpness,
         brightness=illum.brightness,
@@ -425,6 +499,7 @@ def analyze_face_comprehensive(
         bbox=bbox,
         confidence=round(confidence, 4),
         quality_score=quality_score_100,
+        classification=classification,
         visibility=visibility_assessment.visibility,
         visibility_assessment=visibility_assessment,
         landmarks=validated_landmarks or [],
@@ -497,8 +572,11 @@ class FaceAnalyzer:
                         size=compute_face_size_metrics(d.bbox, (img_h, img_w)),
                         illumination=compute_illumination_metrics(safe_crop),
                         clarity=compute_clarity_metrics(safe_crop, min_sharpness_threshold=self.min_sharpness),
+                        classification=QualityClassification.POOR,
                         quality=ComprehensiveFaceQuality(
+                            quality_score=0.0,
                             overall_quality=0.0,
+                            classification=QualityClassification.POOR,
                             sharpness=0.0,
                             brightness=0.0,
                             contrast=0.0,
