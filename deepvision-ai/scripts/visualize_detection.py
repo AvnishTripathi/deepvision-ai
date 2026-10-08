@@ -82,14 +82,14 @@ def main():
 
     args = parser.parse_args()
 
-    input_path = Path(args.input)
+    input_path = Path(args.input).resolve()
     if not input_path.exists():
         print(f"[ERROR] Input file does not exist: {input_path}", file=sys.stderr)
         sys.exit(1)
 
     # Determine output path
     if args.output:
-        output_path = Path(args.output)
+        output_path = Path(args.output).resolve()
     else:
         output_path = input_path.parent / f"{input_path.stem}_detected{input_path.suffix}"
 

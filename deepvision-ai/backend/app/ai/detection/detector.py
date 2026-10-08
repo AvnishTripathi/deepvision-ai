@@ -89,7 +89,8 @@ class FaceDetector(BaseFaceDetector):
         Loads detection model weights and initializes runtime inference sessions.
         Supports both OpenCV native FaceDetectorYN and multi-threaded ONNX Runtime.
         """
-        target_path = model_path or self.model_path
+        raw_path = model_path or self.model_path
+        target_path = os.path.abspath(raw_path) if raw_path else None
         target_device = resolve_device(device) if device else self.device
 
         self.model_path = target_path

@@ -81,7 +81,7 @@ class TestDetectorSuite:
         detector = FaceDetector(model_path=model_path, device="cpu")
         assert detector.is_loaded is True
         assert detector.device == "cpu"
-        assert detector.model_path == model_path
+        assert detector.model_path == os.path.abspath(model_path)
 
     def test_detector_model_loading_missing_file_handled_safely(self):
         """Detector: model loading - verifies non-existent model path leaves detector safely unloaded without unhandled crash."""
