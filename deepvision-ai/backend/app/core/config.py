@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     AI_BLUR_SHARP_THRESHOLD: float = 100.0
     AI_BLUR_SLIGHTLY_BLURRED_THRESHOLD: float = 50.0
 
+    # Face Brightness & Illumination Thresholds (Step 8)
+    AI_BRIGHTNESS_MIN_ACCEPTABLE: float = 60.0
+    AI_BRIGHTNESS_MAX_ACCEPTABLE: float = 200.0
+
     # Storage Paths & Limits
     STORAGE_DIR: str = "./storage"
     MODELS_DIR: str = "./models"

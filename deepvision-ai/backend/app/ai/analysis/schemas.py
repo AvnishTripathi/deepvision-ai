@@ -50,6 +50,13 @@ class ExposureCategory(str, Enum):
     LOW_CONTRAST = "LOW_CONTRAST"
 
 
+class BrightnessStatus(str, Enum):
+    """Qualitative classification of face illumination status (Step 8)."""
+    TOO_DARK = "too_dark"
+    ACCEPTABLE = "acceptable"
+    TOO_BRIGHT = "too_bright"
+
+
 class SizeCategory(str, Enum):
     """Categorical classification of face scale in image pixels."""
     TINY = "TINY"          # < 32px
@@ -162,21 +169,62 @@ class FaceSizeMetrics(BaseModel):
 
 
 class IlluminationMetrics(BaseModel):
-    """Illumination, exposure, and contrast evaluation for face ROI."""
+    """
+    Illumination, exposure, and contrast evaluation for face ROI.
+    Evaluates mean luminance brightness, contrast, and highlight/shadow clipping.
+    """
     brightness: float = Field(
         ..., ge=0.0, le=255.0, description="Mean luminance brightness (0 = pitch black, 255 = white)"
     )
     contrast: float = Field(
         ..., ge=0.0, description="Standard deviation luminance contrast"
     )
-    exposure_category: ExposureCategory = Field(
-        ..., description="Qualitative illumination and exposure classification"
+    brightness_score: float = Field(
+        default=1.0, ge=0.0, le=1.0, description="Normalized brightness suitability score (0.0 to 1.0)"
     )
-    illumination_score: float = Field(
-        ..., ge=0.0, le=1.0, description="Normalized illumination quality score (0.0 to 1.0)"
+    brightness_status: BrightnessStatus = Field(
+        default=BrightnessStatus.ACCEPTABLE,
+        description="Qualitative brightness classification: 'too_dark', 'acceptable', or 'too_bright'",
+    )
+    exposure_category: ExposureCategory = Field(
+        default=ExposureCategory.OPTIMAL,
+        description="Qualitative illumination and exposure classification",
+    )
+    illumination_score: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0, description="Normalized composite illumination quality score (0.0 to 1.0)"
     )
 
     model_config = ConfigDict(populate_by_name=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_brightness_fields(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            # Sync illumination_score <-> brightness_score
+            if "brightness_score" not in data and "illumination_score" in data:
+                data["brightness_score"] = data["illumination_score"]
+            elif "illumination_score" not in data and "brightness_score" in data:
+                data["illumination_score"] = data["brightness_score"]
+
+            # Sync brightness_status -> exposure_category if missing
+            if "brightness_status" in data and "exposure_category" not in data:
+                status = str(data["brightness_status"]).lower()
+                if status == "too_dark":
+                    data["exposure_category"] = ExposureCategory.UNDEREXPOSED
+                elif status == "too_bright":
+                    data["exposure_category"] = ExposureCategory.OVEREXPOSED
+                else:
+                    data["exposure_category"] = ExposureCategory.OPTIMAL
+            # Sync exposure_category -> brightness_status if missing
+            elif "exposure_category" in data and "brightness_status" not in data:
+                exp = str(data["exposure_category"]).upper()
+                if exp == "UNDEREXPOSED":
+                    data["brightness_status"] = BrightnessStatus.TOO_DARK
+                elif exp == "OVEREXPOSED":
+                    data["brightness_status"] = BrightnessStatus.TOO_BRIGHT
+                else:
+                    data["brightness_status"] = BrightnessStatus.ACCEPTABLE
+        return data
 
 
 class ClarityMetrics(BaseModel):

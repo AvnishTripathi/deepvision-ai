@@ -21,6 +21,7 @@ from app.ai.analysis.schemas import (
     BlurCategory,
     BlurStatus,
     ExposureCategory,
+    BrightnessStatus,
     SizeCategory,
     QualityGrade,
     FacialLandmarkMetrics,
@@ -52,6 +53,7 @@ from app.ai.analysis.metrics import (
     calculate_face_size,
     estimate_face_blur,
     compute_clarity_metrics,
+    calculate_face_brightness,
     compute_illumination_metrics,
 )
 from app.ai.analysis.quality import (
@@ -413,29 +415,34 @@ class TestClarityMetrics:
 class TestIlluminationMetrics:
     def test_optimal_exposure(self):
         crop = create_synthetic_face_crop(width=100, height=100)
-        illum = compute_illumination_metrics(crop)
+        illum = calculate_face_brightness(crop)
 
         assert isinstance(illum, IlluminationMetrics)
         assert 60.0 <= illum.brightness <= 200.0
         assert illum.contrast >= 15.0
+        assert illum.brightness_status == BrightnessStatus.ACCEPTABLE
+        assert illum.brightness_score >= 0.70
+        # Backward compatibility checks
         assert illum.exposure_category == ExposureCategory.OPTIMAL
         assert illum.illumination_score >= 0.70
 
     def test_underexposed_dark_face(self):
         dark_crop = np.full((80, 80, 3), 25, dtype=np.uint8)
-        illum = compute_illumination_metrics(dark_crop)
+        illum = calculate_face_brightness(dark_crop)
 
         assert illum.brightness < 55.0
+        assert illum.brightness_status == BrightnessStatus.TOO_DARK
+        assert illum.brightness_score < 0.60
         assert illum.exposure_category == ExposureCategory.UNDEREXPOSED
-        assert illum.illumination_score < 0.60
 
     def test_overexposed_bright_face(self):
         bright_crop = np.full((80, 80, 3), 245, dtype=np.uint8)
-        illum = compute_illumination_metrics(bright_crop)
+        illum = calculate_face_brightness(bright_crop)
 
         assert illum.brightness > 210.0
+        assert illum.brightness_status == BrightnessStatus.TOO_BRIGHT
+        assert illum.brightness_score < 0.70
         assert illum.exposure_category == ExposureCategory.OVEREXPOSED
-        assert illum.illumination_score < 0.70
 
     def test_low_contrast_flat_face(self):
         flat_crop = np.full((80, 80, 3), 128, dtype=np.uint8)
@@ -443,6 +450,33 @@ class TestIlluminationMetrics:
 
         assert illum.contrast < 5.0
         assert illum.exposure_category == ExposureCategory.LOW_CONTRAST
+        assert illum.brightness_status == BrightnessStatus.ACCEPTABLE
+
+    def test_configurable_brightness_thresholds(self):
+        """Verifies that configurable min_acceptable and max_acceptable thresholds dynamically alter status."""
+        crop = np.full((80, 80, 3), 100, dtype=np.uint8)
+
+        # Baseline: 100 is acceptable under default (60, 200)
+        baseline = calculate_face_brightness(crop)
+        assert baseline.brightness_status == BrightnessStatus.ACCEPTABLE
+
+        # High min_acceptable (e.g. 120.0) -> 100 becomes too_dark
+        strict_dark = calculate_face_brightness(crop, min_acceptable=120.0, max_acceptable=220.0)
+        assert strict_dark.brightness_status == BrightnessStatus.TOO_DARK
+
+        # Low max_acceptable (e.g. 90.0) -> 100 becomes too_bright
+        strict_bright = calculate_face_brightness(crop, min_acceptable=40.0, max_acceptable=90.0)
+        assert strict_bright.brightness_status == BrightnessStatus.TOO_BRIGHT
+
+    def test_empty_or_degenerate_crop_brightness(self):
+        empty_crop = np.empty((0, 0, 3), dtype=np.uint8)
+        illum = calculate_face_brightness(empty_crop)
+
+        assert illum.brightness == 0.0
+        assert illum.brightness_score == 0.0
+        assert illum.brightness_status == BrightnessStatus.TOO_DARK
+        assert illum.illumination_score == 0.0
+
 
 
 # -----------------------------------------------------------------------------

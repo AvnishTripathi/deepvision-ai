@@ -8,6 +8,7 @@ from app.ai.analysis.schemas import (
     BlurCategory,
     BlurStatus,
     ExposureCategory,
+    BrightnessStatus,
     SizeCategory,
     QualityGrade,
     FacialLandmarkMetrics,
@@ -41,6 +42,7 @@ from app.ai.analysis.metrics import (
     calculate_face_size,
     estimate_face_blur,
     compute_clarity_metrics,
+    calculate_face_brightness,
     compute_illumination_metrics,
 )
 from app.ai.analysis.quality import (
@@ -59,6 +61,7 @@ __all__ = [
     "BlurCategory",
     "BlurStatus",
     "ExposureCategory",
+    "BrightnessStatus",
     "SizeCategory",
     "QualityGrade",
     "FacialLandmarkMetrics",
@@ -89,6 +92,7 @@ __all__ = [
     "calculate_face_size",
     "estimate_face_blur",
     "compute_clarity_metrics",
+    "calculate_face_brightness",
     "compute_illumination_metrics",
     # Quality Analysis & Legacy
     "compute_sharpness",

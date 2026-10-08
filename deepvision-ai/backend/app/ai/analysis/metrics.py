@@ -17,6 +17,7 @@ from app.ai.analysis.schemas import (
     BlurStatus,
     IlluminationMetrics,
     ExposureCategory,
+    BrightnessStatus,
 )
 
 
@@ -179,16 +180,54 @@ def compute_clarity_metrics(
 # 3. Illumination & Exposure Analysis
 # -----------------------------------------------------------------------------
 
-def compute_illumination_metrics(
+def calculate_face_brightness(
     face_crop_rgb: np.ndarray,
+    min_acceptable: Optional[float] = None,
+    max_acceptable: Optional[float] = None,
 ) -> IlluminationMetrics:
     """
-    Evaluates mean luminance brightness, contrast, and highlights/shadows.
+    Calculates brightness and exposure information for each face crop.
+
+    Mathematical formulation (ITU-R BT.601 standard):
+        Y(x, y) = 0.299 * R + 0.587 * G + 0.114 * B
+        mean brightness = (1/N) * Σ Y(x, y)
+        contrast = sqrt((1/N) * Σ (Y(x, y) - brightness)²)
+
+    Threshold assumptions (configurable):
+        - brightness < min_acceptable (default 60.0): 'too_dark' (underexposed shadow clipping).
+        - min_acceptable <= brightness <= max_acceptable (default 60.0 to 200.0): 'acceptable' (balanced facial luminance).
+        - brightness > max_acceptable (default 200.0): 'too_bright' (overexposed highlight clipping).
+
+    Score calculation (brightness_score in [0.0, 1.0]):
+        - When too dark: scaled linearly from 0.0 at brightness=0 to 0.70 at min_acceptable.
+        - When acceptable: scaled continuously between [0.70, 1.0], centered near optimal midpoint (~130.0).
+        - When too bright: scaled linearly from 0.70 at max_acceptable to 0.0 at brightness=255.
+
+    Args:
+        face_crop_rgb: Cropped face ROI in RGB format.
+        min_acceptable: Optional cutoff below which face is 'too_dark' (defaults to settings.AI_BRIGHTNESS_MIN_ACCEPTABLE or 60.0).
+        max_acceptable: Optional cutoff above which face is 'too_bright' (defaults to settings.AI_BRIGHTNESS_MAX_ACCEPTABLE or 200.0).
+
+    Returns:
+        IlluminationMetrics containing brightness, contrast, brightness_score, and brightness_status.
     """
+    effective_min = (
+        min_acceptable
+        if min_acceptable is not None
+        else getattr(settings, "AI_BRIGHTNESS_MIN_ACCEPTABLE", 60.0)
+    )
+    effective_max = (
+        max_acceptable
+        if max_acceptable is not None
+        else getattr(settings, "AI_BRIGHTNESS_MAX_ACCEPTABLE", 200.0)
+    )
+
     if face_crop_rgb.size == 0 or face_crop_rgb.shape[0] < 4 or face_crop_rgb.shape[1] < 4:
         return IlluminationMetrics(
             brightness=0.0,
             contrast=0.0,
+            brightness_score=0.0,
+            brightness_status=BrightnessStatus.TOO_DARK,
             exposure_category=ExposureCategory.UNDEREXPOSED,
             illumination_score=0.0,
         )
@@ -200,33 +239,56 @@ def compute_illumination_metrics(
     brightness = round(mean_val, 2)
     contrast = round(std_val, 2)
 
-    # Exposure classification
-    if brightness < 55.0:
-        category = ExposureCategory.UNDEREXPOSED
-    elif brightness > 210.0:
-        category = ExposureCategory.OVEREXPOSED
-    elif contrast < 16.0:
-        category = ExposureCategory.LOW_CONTRAST
-    elif contrast > 75.0:
-        category = ExposureCategory.HARSH_CONTRAST
+    # Status classification against configurable thresholds
+    if brightness < effective_min:
+        status = BrightnessStatus.TOO_DARK
+        exp_category = ExposureCategory.UNDEREXPOSED
+        score_brightness = max(0.0, (brightness / effective_min) * 0.70) if effective_min > 0 else 0.0
+    elif brightness > effective_max:
+        status = BrightnessStatus.TOO_BRIGHT
+        exp_category = ExposureCategory.OVEREXPOSED
+        denom = 255.0 - effective_max
+        score_brightness = max(0.0, ((255.0 - brightness) / denom) * 0.70) if denom > 0 else 0.0
     else:
-        category = ExposureCategory.OPTIMAL
+        status = BrightnessStatus.ACCEPTABLE
+        exp_category = ExposureCategory.OPTIMAL
+        # Smooth trapezoid/midpoint centered at (min + max) / 2
+        midpoint = (effective_min + effective_max) / 2.0
+        half_range = max(1.0, (effective_max - effective_min) / 2.0)
+        deviation = abs(brightness - midpoint) / half_range
+        score_brightness = max(0.70, 1.0 - 0.30 * deviation)
 
-    # Continuous illumination quality score [0.0, 1.0]
-    # Optimal brightness is centered around 100-160 with contrast between 25-60
-    if brightness < 60.0:
-        score_brightness = max(0.0, brightness / 60.0)
-    elif brightness > 200.0:
-        score_brightness = max(0.0, (255.0 - brightness) / 55.0)
-    else:
-        score_brightness = 1.0
+    score_brightness = round(min(1.0, max(0.0, score_brightness)), 3)
 
+    # Composite illumination score incorporates contrast
     score_contrast = min(1.0, max(0.0, contrast / 50.0))
-    illumination_score = round(score_brightness * 0.70 + score_contrast * 0.30, 3)
+    illumination_score = round(score_brightness * 0.75 + score_contrast * 0.25, 3)
+
+    # Contrast fine-tuning on exposure category
+    if status == BrightnessStatus.ACCEPTABLE:
+        if contrast < 16.0:
+            exp_category = ExposureCategory.LOW_CONTRAST
+        elif contrast > 75.0:
+            exp_category = ExposureCategory.HARSH_CONTRAST
 
     return IlluminationMetrics(
         brightness=brightness,
         contrast=contrast,
-        exposure_category=category,
+        brightness_score=score_brightness,
+        brightness_status=status,
+        exposure_category=exp_category,
         illumination_score=illumination_score,
+    )
+
+
+def compute_illumination_metrics(
+    face_crop_rgb: np.ndarray,
+    min_acceptable: Optional[float] = None,
+    max_acceptable: Optional[float] = None,
+) -> IlluminationMetrics:
+    """Backward-compatible wrapper for calculate_face_brightness."""
+    return calculate_face_brightness(
+        face_crop_rgb=face_crop_rgb,
+        min_acceptable=min_acceptable,
+        max_acceptable=max_acceptable,
     )
