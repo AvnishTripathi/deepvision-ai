@@ -110,7 +110,14 @@ class FacialLandmarkMetrics(BaseModel):
 
 
 class HeadPoseEstimation(BaseModel):
-    """3D Head pose orientation estimated via Perspective-n-Point (solvePnP)."""
+    """
+    3D Head pose orientation estimated via Perspective-n-Point (solvePnP).
+    Supports actual yaw, pitch, and roll in degrees (Step 12).
+
+    Disclaimer:
+        This is an engineering approximation for face orientation triage;
+        it does not claim clinical, surgical, or sub-degree biometric accuracy.
+    """
     yaw: float = Field(
         ..., description="Yaw rotation angle in degrees (negative = turned left, positive = turned right)"
     )
@@ -121,13 +128,22 @@ class HeadPoseEstimation(BaseModel):
         ..., description="Roll rotation angle in degrees (tilt sideways, ear towards shoulder)"
     )
     frontality_score: float = Field(
-        ..., ge=0.0, le=1.0, description="Normalized frontality score (1.0 = directly facing camera)"
+        default=1.0, ge=0.0, le=1.0, description="Normalized frontality score (1.0 = directly facing camera)"
     )
     pose_category: PoseCategory = Field(
-        ..., description="Qualitative category of facial orientation"
+        default=PoseCategory.FRONTAL, description="Qualitative category of facial orientation"
     )
 
     model_config = ConfigDict(populate_by_name=True)
+
+    def to_angles_dict(self) -> Dict[str, float]:
+        """Returns {yaw, pitch, roll} dictionary conforming strictly to Step 12 specification."""
+        return {
+            "yaw": self.yaw,
+            "pitch": self.pitch,
+            "roll": self.roll,
+        }
+
 
 
 class FaceSizeMetrics(BaseModel):

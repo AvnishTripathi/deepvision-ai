@@ -186,27 +186,27 @@ class HeadPoseEstimator:
     def _geometric_heuristic_pose_fallback(
         self,
         lm_map: Dict[str, Tuple[float, float]],
-    ) -> HeadPoseEstimation:
+    ) -> Optional[HeadPoseEstimation]:
         """
         Pure geometric heuristic fallback when solvePnP fails.
         Estimates yaw from nose-to-eye horizontal distance ratio,
         roll from eye tilt, and pitch from nose-to-eye vertical ratio.
+
+        Returns None rather than fake zero values if coordinates are corrupt or degenerate.
         """
         try:
             re_x, re_y = lm_map["right_eye"]
             le_x, le_y = lm_map["left_eye"]
             n_x, n_y = lm_map["nose_tip"]
 
-            # Guard against NaN/Inf
+            # Guard against NaN/Inf - return None rather than fake values
             coords = [re_x, re_y, le_x, le_y, n_x, n_y]
             if any(math.isnan(c) or math.isinf(c) for c in coords):
-                return HeadPoseEstimation(
-                    yaw=0.0,
-                    pitch=0.0,
-                    roll=0.0,
-                    frontality_score=1.0,
-                    pose_category=PoseCategory.FRONTAL,
-                )
+                return None
+
+            # Guard against degenerate / overlapping eye points
+            if math.hypot(le_x - re_x, le_y - re_y) < 3.0:
+                return None
 
             # Roll: eye-line angle
             roll_deg = math.degrees(math.atan2(le_y - re_y, le_x - re_x))
@@ -237,13 +237,7 @@ class HeadPoseEstimator:
                 pose_category=category,
             )
         except Exception:
-            return HeadPoseEstimation(
-                yaw=0.0,
-                pitch=0.0,
-                roll=0.0,
-                frontality_score=1.0,
-                pose_category=PoseCategory.FRONTAL,
-            )
+            return None
 
 
 _default_pose_estimator = HeadPoseEstimator()
@@ -253,5 +247,46 @@ def estimate_head_pose(
     landmarks: List[LandmarkPoint],
     image_shape: Tuple[int, int],
 ) -> Optional[HeadPoseEstimation]:
-    """Estimates 3D head pose angles (Yaw, Pitch, Roll) and frontality score."""
+    """
+    Estimates 3D head pose angles (Yaw, Pitch, Roll) and frontality score.
+
+    Disclaimer:
+        Pose orientation estimates are engineering heuristics for orientation triage;
+        they do not provide medical, clinical, surgical, or sub-degree biometric accuracy.
+    """
     return _default_pose_estimator.estimate_pose(landmarks, image_shape)
+
+
+def get_pose_estimation_status(
+    landmarks: Optional[List[LandmarkPoint]],
+    image_shape: Tuple[int, int],
+) -> Tuple[Optional[HeadPoseEstimation], Optional[str]]:
+    """
+    Returns (pose, None) if pose can be reliably estimated from landmarks,
+    or (None, failure_reason) documenting why pose estimation is unavailable.
+    """
+    if not landmarks or len(landmarks) < 5:
+        return None, "insufficient_landmarks (requires at least 5 facial landmarks)"
+
+    img_h, img_w = image_shape
+    if img_h <= 0 or img_w <= 0:
+        return None, "degenerate_canvas (image dimensions must be positive non-zero integers)"
+
+    from app.ai.analysis.landmarks import LandmarkProcessor
+    lm_map = LandmarkProcessor().parse_landmarks_map(landmarks)
+    required_names = ("right_eye", "left_eye", "nose_tip", "mouth_right", "mouth_left")
+    missing = [name for name in required_names if name not in lm_map]
+    if missing:
+        return None, f"missing_keypoints (missing required facial landmarks: {', '.join(missing)})"
+
+    re_x, re_y = lm_map["right_eye"]
+    le_x, le_y = lm_map["left_eye"]
+    if math.hypot(le_x - re_x, le_y - re_y) < 3.0:
+        return None, "degenerate_geometry (inter-ocular eye distance below minimum physical threshold)"
+
+    pose = estimate_head_pose(landmarks, image_shape)
+    if pose is None:
+        return None, "solve_pnp_unconverged (optical perspective geometry could not be resolved)"
+
+    return pose, None
+

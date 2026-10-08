@@ -52,6 +52,7 @@ from app.ai.analysis.landmarks import (
 from app.ai.analysis.pose import (
     HeadPoseEstimator,
     estimate_head_pose,
+    get_pose_estimation_status,
     CANONICAL_3D_MODEL_POINTS,
 )
 from app.ai.analysis.metrics import (
@@ -354,6 +355,93 @@ class TestHeadPoseEstimation:
         assert isinstance(fallback_pose, HeadPoseEstimation)
         assert fallback_pose.pose_category == PoseCategory.FRONTAL
         assert fallback_pose.frontality_score >= 0.80
+
+    def test_head_pose_to_angles_dict(self):
+        pose = HeadPoseEstimation(
+            yaw=4.2,
+            pitch=-2.1,
+            roll=1.4,
+            frontality_score=0.94,
+            pose_category=PoseCategory.FRONTAL,
+        )
+        angles_dict = pose.to_angles_dict()
+        assert angles_dict == {
+            "yaw": 4.2,
+            "pitch": -2.1,
+            "roll": 1.4,
+        }
+        assert isinstance(angles_dict["yaw"], float)
+        assert isinstance(angles_dict["pitch"], float)
+        assert isinstance(angles_dict["roll"], float)
+
+    def test_get_pose_estimation_status_success(self):
+        landmarks = create_canonical_landmarks(offset_x=200.0, offset_y=150.0, scale=1.2)
+        pose, reason = get_pose_estimation_status(landmarks, image_shape=(640, 640))
+        assert pose is not None
+        assert reason is None
+        assert isinstance(pose.yaw, float)
+        assert isinstance(pose.pitch, float)
+        assert isinstance(pose.roll, float)
+
+    def test_get_pose_estimation_status_unavailable_states(self):
+        # Empty or < 5 landmarks
+        pose, reason = get_pose_estimation_status([], image_shape=(640, 640))
+        assert pose is None
+        assert reason is not None
+        assert "insufficient_landmarks" in reason
+
+        # Degenerate canvas
+        landmarks = create_canonical_landmarks()
+        pose, reason = get_pose_estimation_status(landmarks, image_shape=(0, 0))
+        assert pose is None
+        assert "degenerate_canvas" in reason
+
+        # Missing required keypoint
+        incomplete = [
+            LandmarkPoint(name="right_eye", x=200.0, y=200.0),
+            LandmarkPoint(name="left_eye", x=300.0, y=200.0),
+            LandmarkPoint(name="nose_tip", x=250.0, y=250.0),
+            LandmarkPoint(name="mouth_right", x=220.0, y=290.0),
+            LandmarkPoint(name="chin", x=250.0, y=340.0),  # chin instead of mouth_left
+        ]
+        pose, reason = get_pose_estimation_status(incomplete, image_shape=(640, 640))
+        assert pose is None
+        assert "missing_keypoints" in reason
+
+        # Degenerate geometry (overlapping eyes < 3 px apart)
+        degenerate_eyes = [
+            LandmarkPoint(name="right_eye", x=200.0, y=200.0),
+            LandmarkPoint(name="left_eye", x=201.0, y=200.0),  # only 1 px apart
+            LandmarkPoint(name="nose_tip", x=200.5, y=220.0),
+            LandmarkPoint(name="mouth_right", x=199.0, y=240.0),
+            LandmarkPoint(name="mouth_left", x=202.0, y=240.0),
+        ]
+        pose, reason = get_pose_estimation_status(degenerate_eyes, image_shape=(640, 640))
+        assert pose is None
+        assert "degenerate_geometry" in reason
+
+    def test_fallback_returns_none_on_nan_or_inf(self):
+        estimator = HeadPoseEstimator()
+        # NaN coordinates
+        nan_map = {
+            "right_eye": (float("nan"), 100.0),
+            "left_eye": (200.0, 100.0),
+            "nose_tip": (150.0, 140.0),
+            "mouth_right": (120.0, 180.0),
+            "mouth_left": (180.0, 180.0),
+        }
+        assert estimator._geometric_heuristic_pose_fallback(nan_map) is None
+
+        # Degenerate / identical eye positions
+        zero_dist_map = {
+            "right_eye": (100.0, 100.0),
+            "left_eye": (100.0, 100.0),
+            "nose_tip": (100.0, 140.0),
+            "mouth_right": (90.0, 180.0),
+            "mouth_left": (110.0, 180.0),
+        }
+        assert estimator._geometric_heuristic_pose_fallback(zero_dist_map) is None
+
 
 
 # -----------------------------------------------------------------------------

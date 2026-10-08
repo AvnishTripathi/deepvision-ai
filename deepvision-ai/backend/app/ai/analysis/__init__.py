@@ -42,6 +42,7 @@ from app.ai.analysis.pose import (
     CANONICAL_3D_MODEL_POINTS,
     HeadPoseEstimator,
     estimate_head_pose,
+    get_pose_estimation_status,
 )
 from app.ai.analysis.metrics import (
     compute_face_size_metrics,
@@ -99,6 +100,7 @@ __all__ = [
     "CANONICAL_3D_MODEL_POINTS",
     "HeadPoseEstimator",
     "estimate_head_pose",
+    "get_pose_estimation_status",
     # Metrics
     "compute_face_size_metrics",
     "calculate_face_size",
