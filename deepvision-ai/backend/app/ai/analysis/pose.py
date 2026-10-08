@@ -192,38 +192,58 @@ class HeadPoseEstimator:
         Estimates yaw from nose-to-eye horizontal distance ratio,
         roll from eye tilt, and pitch from nose-to-eye vertical ratio.
         """
-        re_x, re_y = lm_map["right_eye"]
-        le_x, le_y = lm_map["left_eye"]
-        n_x, n_y = lm_map["nose_tip"]
+        try:
+            re_x, re_y = lm_map["right_eye"]
+            le_x, le_y = lm_map["left_eye"]
+            n_x, n_y = lm_map["nose_tip"]
 
-        # Roll: eye-line angle
-        roll_deg = math.degrees(math.atan2(le_y - re_y, le_x - re_x))
+            # Guard against NaN/Inf
+            coords = [re_x, re_y, le_x, le_y, n_x, n_y]
+            if any(math.isnan(c) or math.isinf(c) for c in coords):
+                return HeadPoseEstimation(
+                    yaw=0.0,
+                    pitch=0.0,
+                    roll=0.0,
+                    frontality_score=1.0,
+                    pose_category=PoseCategory.FRONTAL,
+                )
 
-        # Yaw: asymmetry between left-eye-to-nose and right-eye-to-nose
-        d_re = n_x - re_x
-        d_le = le_x - n_x
-        tot = max(1.0, d_re + d_le)
-        asymmetry = (d_re - d_le) / tot  # [-1, 1]
-        yaw_deg = asymmetry * 45.0
+            # Roll: eye-line angle
+            roll_deg = math.degrees(math.atan2(le_y - re_y, le_x - re_x))
 
-        # Pitch: vertical offset of nose relative to eye midpoint
-        mid_eye_y = (re_y + le_y) / 2.0
-        pitch_deg = max(-30.0, min(30.0, (n_y - mid_eye_y - 20.0) * 0.5))
+            # Yaw: asymmetry between left-eye-to-nose and right-eye-to-nose
+            d_re = abs(n_x - re_x)
+            d_le = abs(le_x - n_x)
+            tot = max(1.0, d_re + d_le)
+            asymmetry = (d_re - d_le) / tot  # [-1, 1]
+            yaw_deg = asymmetry * 45.0
 
-        pitch_deg = round(pitch_deg, 2)
-        yaw_deg = round(yaw_deg, 2)
-        roll_deg = round(roll_deg, 2)
+            # Pitch: vertical offset of nose relative to eye midpoint
+            mid_eye_y = (re_y + le_y) / 2.0
+            pitch_deg = max(-30.0, min(30.0, (n_y - mid_eye_y - 20.0) * 0.5))
 
-        frontality = self._compute_frontality_score(yaw_deg, pitch_deg, roll_deg)
-        category = self._classify_pose(yaw_deg, pitch_deg, roll_deg)
+            pitch_deg = round(pitch_deg, 2)
+            yaw_deg = round(yaw_deg, 2)
+            roll_deg = round(roll_deg, 2)
 
-        return HeadPoseEstimation(
-            yaw=yaw_deg,
-            pitch=pitch_deg,
-            roll=roll_deg,
-            frontality_score=frontality,
-            pose_category=category,
-        )
+            frontality = self._compute_frontality_score(yaw_deg, pitch_deg, roll_deg)
+            category = self._classify_pose(yaw_deg, pitch_deg, roll_deg)
+
+            return HeadPoseEstimation(
+                yaw=yaw_deg,
+                pitch=pitch_deg,
+                roll=roll_deg,
+                frontality_score=frontality,
+                pose_category=category,
+            )
+        except Exception:
+            return HeadPoseEstimation(
+                yaw=0.0,
+                pitch=0.0,
+                roll=0.0,
+                frontality_score=1.0,
+                pose_category=PoseCategory.FRONTAL,
+            )
 
 
 _default_pose_estimator = HeadPoseEstimator()

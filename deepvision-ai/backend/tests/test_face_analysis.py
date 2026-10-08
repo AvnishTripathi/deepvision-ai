@@ -38,6 +38,8 @@ from app.ai.analysis.landmarks import (
     landmarks_to_list,
     normalize_landmark_name,
     STANDARD_LANDMARK_NAMES,
+    validate_and_clip_landmarks,
+    validate_and_clip_landmarks_list,
 )
 from app.ai.analysis.pose import (
     HeadPoseEstimator,
@@ -606,3 +608,236 @@ class TestAnalysisAPIEndpoint:
         data = response.json()
         assert data["success"] is False
         assert "error" in data
+
+
+# -----------------------------------------------------------------------------
+# 10. Landmark Coordinate Validation & Boundary Enforcement Tests (Step 5)
+# -----------------------------------------------------------------------------
+
+class TestLandmarkValidationAndRobustness:
+    """
+    Tests landmark coordinate boundary enforcement (0 <= x <= w, 0 <= y <= h),
+    low-confidence filtering, non-finite value rejection, partial landmark safety,
+    and multi-face batch fault isolation.
+    """
+
+    def test_landmark_boundary_clipping(self):
+        """Verifies that out-of-bounds landmark coordinates are clamped strictly to [0, w] and [0, h]."""
+        w, h = 640, 480
+        raw_landmarks = [
+            LandmarkPoint(name="left_eye", x=-50.0, y=100.0, confidence=0.9),
+            LandmarkPoint(name="right_eye", x=700.0, y=-20.0, confidence=0.85),
+            LandmarkPoint(name="nose_tip", x=320.0, y=550.0, confidence=0.95),
+            LandmarkPoint(name="mouth_left", x=280.0, y=350.0, confidence=0.9),
+            LandmarkPoint(name="mouth_right", x=360.0, y=350.0, confidence=0.9),
+        ]
+
+        clipped_dict = validate_and_clip_landmarks(raw_landmarks, image_width=w, image_height=h)
+
+        # left_eye was -50.0 -> clamped to 0.0
+        assert clipped_dict["left_eye"].x == 0.0
+        assert clipped_dict["left_eye"].y == 100.0
+
+        # right_eye was x=700.0, y=-20.0 -> clamped to x=640.0, y=0.0
+        assert clipped_dict["right_eye"].x == 640.0
+        assert clipped_dict["right_eye"].y == 0.0
+
+        # nose was y=550.0 -> clamped to y=480.0 (normalized from nose_tip to nose)
+        assert clipped_dict["nose"].x == 320.0
+        assert clipped_dict["nose"].y == 480.0
+
+        # All points strictly satisfy 0 <= x <= w and 0 <= y <= h
+        for name, coord in clipped_dict.items():
+            assert 0.0 <= coord.x <= float(w)
+            assert 0.0 <= coord.y <= float(h)
+
+        # Verify list variant as well
+        clipped_list = validate_and_clip_landmarks_list(raw_landmarks, image_width=w, image_height=h)
+        assert len(clipped_list) == 5
+        for lm in clipped_list:
+            assert 0.0 <= lm.x <= float(w)
+            assert 0.0 <= lm.y <= float(h)
+
+    def test_landmark_is_within_bounds_checker(self):
+        """Tests the is_within_bounds method on LandmarkPoint and LandmarkCoordinate."""
+        w, h = 800, 600
+
+        valid_pt = LandmarkPoint(name="nose", x=400.0, y=300.0)
+        assert valid_pt.is_within_bounds(w, h) is True
+
+        neg_x = LandmarkPoint(name="nose", x=-5.0, y=300.0)
+        assert neg_x.is_within_bounds(w, h) is False
+
+        over_w = LandmarkPoint(name="nose", x=850.0, y=300.0)
+        assert over_w.is_within_bounds(w, h) is False
+
+        over_h = LandmarkPoint(name="nose", x=400.0, y=650.0)
+        assert over_h.is_within_bounds(w, h) is False
+
+        # LandmarkCoordinate
+        valid_coord = LandmarkCoordinate(x=100.0, y=100.0)
+        assert valid_coord.is_within_bounds(w, h) is True
+
+        neg_coord = LandmarkCoordinate(x=100.0, y=-1.0)
+        assert neg_coord.is_within_bounds(w, h) is False
+
+    def test_nan_and_inf_landmarks_discarded(self):
+        """Verifies that non-finite landmark values (NaN / Inf) are safely discarded without error."""
+        w, h = 640, 480
+        corrupt_landmarks = [
+            LandmarkPoint(name="left_eye", x=float("nan"), y=150.0),
+            LandmarkPoint(name="right_eye", x=250.0, y=float("inf")),
+            LandmarkPoint(name="nose_tip", x=200.0, y=200.0),
+        ]
+
+        cleaned = validate_and_clip_landmarks(corrupt_landmarks, image_width=w, image_height=h)
+        assert "left_eye" not in cleaned
+        assert "right_eye" not in cleaned
+        assert "nose" in cleaned
+        assert cleaned["nose"].x == 200.0
+
+    def test_low_confidence_filtering(self):
+        """Verifies that landmarks with confidence below threshold are filtered out when requested."""
+        w, h = 640, 480
+        landmarks = [
+            LandmarkPoint(name="left_eye", x=150.0, y=150.0, confidence=0.92),
+            LandmarkPoint(name="right_eye", x=250.0, y=150.0, confidence=0.35),  # Low confidence
+            LandmarkPoint(name="nose_tip", x=200.0, y=200.0, confidence=0.88),
+        ]
+
+        filtered = validate_and_clip_landmarks(landmarks, image_width=w, image_height=h, min_confidence=0.50)
+        assert "left_eye" in filtered
+        assert "nose" in filtered
+        assert "right_eye" not in filtered
+
+    def test_missing_and_partial_landmarks_safety(self):
+        """Verifies that incomplete landmarks (e.g. 1 or 2 points) return None safely without crashing."""
+        partial_landmarks = [
+            LandmarkPoint(name="left_eye", x=150.0, y=150.0),
+            LandmarkPoint(name="right_eye", x=250.0, y=150.0),
+        ]
+
+        # Landmark metrics requires all 5 regions
+        metrics = compute_landmark_metrics(partial_landmarks)
+        assert metrics is None
+
+        # Head pose requires all 5 regions
+        pose = estimate_head_pose(partial_landmarks, image_shape=(480, 640))
+        assert pose is None
+
+    def test_collinear_or_identical_landmarks_safety(self):
+        """Verifies that degenerate coincident landmarks do not cause ZeroDivisionError or crash."""
+        coincident_landmarks = [
+            LandmarkPoint(name="left_eye", x=100.0, y=100.0),
+            LandmarkPoint(name="right_eye", x=100.0, y=100.0),
+            LandmarkPoint(name="nose_tip", x=100.0, y=100.0),
+            LandmarkPoint(name="mouth_left", x=100.0, y=100.0),
+            LandmarkPoint(name="mouth_right", x=100.0, y=100.0),
+        ]
+
+        # Should handle 0 IPD and 0 distances cleanly without raising
+        metrics = compute_landmark_metrics(coincident_landmarks)
+        assert metrics is not None
+        assert metrics.interpupillary_distance_px == 0.0
+
+        # Pose estimation should fallback safely without raising
+        pose = estimate_head_pose(coincident_landmarks, image_shape=(480, 640))
+        assert pose is not None
+
+    def test_analyze_face_comprehensive_with_no_landmarks(self):
+        """Ensures comprehensive face analysis succeeds with zero landmarks (landmarks=None)."""
+        crop = create_synthetic_face_crop(width=100, height=100)
+        bbox = BoundingBox(x1=50, y1=50, x2=150, y2=150)
+
+        analysis = analyze_face_comprehensive(
+            face_crop_rgb=crop,
+            bbox=bbox,
+            image_shape=(300, 300),
+            landmarks=None,
+        )
+
+        assert analysis is not None
+        assert analysis.landmark_metrics is None
+        assert analysis.pose is None
+        assert analysis.landmarks == {}
+        assert analysis.quality.overall_quality > 0.0
+        assert analysis.size.width_px == 100.0
+
+    def test_analyze_face_comprehensive_with_partial_landmarks(self):
+        """Ensures comprehensive face analysis succeeds with partial landmarks (e.g. 2 points)."""
+        crop = create_synthetic_face_crop(width=100, height=100)
+        bbox = BoundingBox(x1=50, y1=50, x2=150, y2=150)
+        partial_lms = [
+            LandmarkPoint(name="left_eye", x=70.0, y=70.0),
+            LandmarkPoint(name="right_eye", x=130.0, y=70.0),
+        ]
+
+        analysis = analyze_face_comprehensive(
+            face_crop_rgb=crop,
+            bbox=bbox,
+            image_shape=(300, 300),
+            landmarks=partial_lms,
+        )
+
+        assert analysis is not None
+        assert analysis.landmark_metrics is None
+        assert analysis.pose is None
+        assert "left_eye" in analysis.landmarks
+        assert "right_eye" in analysis.landmarks
+        assert analysis.quality.overall_quality > 0.0
+
+    def test_multi_face_fault_isolation(self):
+        """
+        CRITICAL TEST: Verifies that a batch containing faces with corrupt, missing,
+        and valid landmarks NEVER crashes the complete request.
+        All faces in the batch must be processed.
+        """
+        canvas = np.zeros((400, 600, 3), dtype=np.uint8)
+
+        # Face 1: Fully valid canonical landmarks
+        face_1 = FaceDetection(
+            face_id="valid_face",
+            bbox=BoundingBox(x1=50, y1=50, x2=150, y2=150),
+            confidence=0.96,
+            landmarks=create_canonical_landmarks(offset_x=50.0, offset_y=50.0),
+        )
+
+        # Face 2: Corrupted landmarks with NaN and out-of-bounds coordinates
+        face_2 = FaceDetection(
+            face_id="corrupt_face",
+            bbox=BoundingBox(x1=200, y1=50, x2=300, y2=150),
+            confidence=0.90,
+            landmarks=[
+                LandmarkPoint(name="left_eye", x=float("nan"), y=80.0),
+                LandmarkPoint(name="right_eye", x=9999.0, y=-500.0),
+            ],
+        )
+
+        # Face 3: Incomplete / zero landmarks
+        face_3 = FaceDetection(
+            face_id="no_landmarks_face",
+            bbox=BoundingBox(x1=350, y1=50, x2=450, y2=150),
+            confidence=0.92,
+            landmarks=None,
+        )
+
+        analyzer = FaceAnalyzer(min_sharpness=50.0)
+        analyses = analyzer.analyze_detections(canvas, [face_1, face_2, face_3])
+
+        # Batch MUST contain results for all 3 faces without crashing
+        assert len(analyses) == 3
+
+        # Face 1 has full analysis
+        assert analyses[0].face_id == "valid_face"
+        assert analyses[0].landmark_metrics is not None
+        assert analyses[0].pose is not None
+
+        # Face 2 has clipped/cleaned landmarks, did not crash
+        assert analyses[1].face_id == "corrupt_face"
+        assert analyses[1].landmark_metrics is None  # Handled safely
+
+        # Face 3 has no landmarks, did not crash
+        assert analyses[2].face_id == "no_landmarks_face"
+        assert analyses[2].landmark_metrics is None
+        assert analyses[2].pose is None
+

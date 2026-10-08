@@ -4,6 +4,7 @@ Strongly typed Pydantic v2 schemas for bounding boxes, landmarks, face detection
 frame inference responses, and performance telemetry.
 """
 
+import math
 from typing import List, Optional, Dict, Any, Union
 from pydantic import BaseModel, Field, computed_field, model_validator, ConfigDict
 
@@ -140,6 +141,29 @@ class LandmarkPoint(BaseModel):
     y: float = Field(..., description="Y coordinate")
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Landmark confidence score")
 
+    def is_within_bounds(self, image_width: Optional[int] = None, image_height: Optional[int] = None) -> bool:
+        """Validates landmark coordinate bounds: 0 <= x <= image_width and 0 <= y <= image_height."""
+        if math.isnan(self.x) or math.isnan(self.y) or math.isinf(self.x) or math.isinf(self.y):
+            return False
+        if self.x < 0.0 or self.y < 0.0:
+            return False
+        if image_width is not None and self.x > float(image_width):
+            return False
+        if image_height is not None and self.y > float(image_height):
+            return False
+        return True
+
+    def clip_to_bounds(self, image_width: int, image_height: int) -> "LandmarkPoint":
+        """Clamps coordinates strictly to [0, image_width] and [0, image_height]."""
+        cx = max(0.0, min(float(image_width), float(self.x)))
+        cy = max(0.0, min(float(image_height), float(self.y)))
+        return LandmarkPoint(
+            name=self.name,
+            x=round(cx, 2),
+            y=round(cy, 2),
+            confidence=self.confidence,
+        )
+
 
 class LandmarkCoordinate(BaseModel):
     """2D coordinate representing a specific facial landmark point in image space."""
@@ -148,6 +172,28 @@ class LandmarkCoordinate(BaseModel):
     confidence: Optional[float] = Field(None, ge=0.0, le=1.0, description="Optional landmark confidence score")
 
     model_config = ConfigDict(populate_by_name=True)
+
+    def is_within_bounds(self, image_width: Optional[int] = None, image_height: Optional[int] = None) -> bool:
+        """Validates landmark coordinate bounds: 0 <= x <= image_width and 0 <= y <= image_height."""
+        if math.isnan(self.x) or math.isnan(self.y) or math.isinf(self.x) or math.isinf(self.y):
+            return False
+        if self.x < 0.0 or self.y < 0.0:
+            return False
+        if image_width is not None and self.x > float(image_width):
+            return False
+        if image_height is not None and self.y > float(image_height):
+            return False
+        return True
+
+    def clip_to_bounds(self, image_width: int, image_height: int) -> "LandmarkCoordinate":
+        """Clamps coordinates strictly to [0, image_width] and [0, image_height]."""
+        cx = max(0.0, min(float(image_width), float(self.x)))
+        cy = max(0.0, min(float(image_height), float(self.y)))
+        return LandmarkCoordinate(
+            x=round(cx, 2),
+            y=round(cy, 2),
+            confidence=self.confidence,
+        )
 
     @classmethod
     def from_point(cls, point: Any) -> "LandmarkCoordinate":

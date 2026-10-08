@@ -23,13 +23,18 @@ from app.ai.analysis.schemas import (
     IlluminationMetrics,
     ClarityMetrics,
 )
-from app.ai.analysis.landmarks import compute_landmark_metrics
+from app.ai.analysis.landmarks import (
+    compute_landmark_metrics,
+    validate_and_clip_landmarks_list,
+)
 from app.ai.analysis.pose import estimate_head_pose
 from app.ai.analysis.metrics import (
     compute_face_size_metrics,
     compute_clarity_metrics,
     compute_illumination_metrics,
 )
+import logging
+logger = logging.getLogger("deepvision.ai.analysis")
 
 
 # -----------------------------------------------------------------------------
@@ -138,17 +143,40 @@ def analyze_face_comprehensive(
     5. Illumination & contrast diagnostics
     6. Composite explainable quality scoring & grading
     """
+    img_h, img_w = image_shape
+
+    # Validate and clip input landmarks against image boundaries [0, width] and [0, height]
+    validated_landmarks: Optional[List[LandmarkPoint]] = None
+    if landmarks:
+        try:
+            validated_landmarks = validate_and_clip_landmarks_list(
+                landmarks=landmarks,
+                image_width=img_w,
+                image_height=img_h,
+            )
+        except Exception as lm_val_exc:
+            logger.warning("Failed validating landmark boundaries for face %s: %s", face_id, lm_val_exc)
+            validated_landmarks = None
+
     # 1. Landmark & Symmetry Metrics
     lm_metrics: Optional[FacialLandmarkMetrics] = None
-    if landmarks and len(landmarks) >= 5:
-        lm_metrics = compute_landmark_metrics(landmarks)
+    if validated_landmarks and len(validated_landmarks) >= 5:
+        try:
+            lm_metrics = compute_landmark_metrics(validated_landmarks)
+        except Exception as lm_exc:
+            logger.warning("Failed computing landmark metrics for face %s: %s", face_id, lm_exc)
+            lm_metrics = None
 
     ipd = lm_metrics.interpupillary_distance_px if lm_metrics else None
 
     # 2. 3D Head Pose & Orientation
     pose: Optional[HeadPoseEstimation] = None
-    if landmarks and len(landmarks) >= 5:
-        pose = estimate_head_pose(landmarks, image_shape)
+    if validated_landmarks and len(validated_landmarks) >= 5:
+        try:
+            pose = estimate_head_pose(validated_landmarks, image_shape)
+        except Exception as pose_exc:
+            logger.warning("Failed estimating head pose for face %s: %s", face_id, pose_exc)
+            pose = None
 
     # 3. Size & Scale Metrics
     size = compute_face_size_metrics(bbox, image_shape, ipd=ipd)
@@ -206,7 +234,7 @@ def analyze_face_comprehensive(
         face_id=face_id,
         bbox=bbox,
         confidence=round(confidence, 4),
-        landmarks=landmarks or [],
+        landmarks=validated_landmarks or [],
         landmark_metrics=lm_metrics,
         pose=pose,
         size=size,
@@ -220,6 +248,7 @@ class FaceAnalyzer:
     """
     High-level orchestrator that applies comprehensive face analysis
     to detected faces across an image.
+    Never crashes the request if one face has corrupted or missing landmarks/geometry.
     """
 
     def __init__(self, min_sharpness: float = 50.0):
@@ -232,30 +261,58 @@ class FaceAnalyzer:
     ) -> List[StructuredFaceAnalysis]:
         """
         Analyzes a list of FaceDetection items on the input RGB image.
+        Applies per-face fault isolation so that an anomaly in one face never crashes the entire batch.
         """
         img_h, img_w = image_rgb.shape[:2]
         analyses: List[StructuredFaceAnalysis] = []
 
         for d in detections:
-            x1 = max(0, min(img_w, int(d.bbox.x1)))
-            y1 = max(0, min(img_h, int(d.bbox.y1)))
-            x2 = max(0, min(img_w, int(d.bbox.x2)))
-            y2 = max(0, min(img_h, int(d.bbox.y2)))
+            try:
+                x1 = max(0, min(img_w, int(d.bbox.x1)))
+                y1 = max(0, min(img_h, int(d.bbox.y1)))
+                x2 = max(0, min(img_w, int(d.bbox.x2)))
+                y2 = max(0, min(img_h, int(d.bbox.y2)))
 
-            if x2 > x1 and y2 > y1:
-                crop = image_rgb[y1:y2, x1:x2]
-            else:
-                crop = np.empty((0, 0, 3), dtype=np.uint8)
+                if x2 > x1 and y2 > y1:
+                    crop = image_rgb[y1:y2, x1:x2]
+                else:
+                    crop = np.empty((0, 0, 3), dtype=np.uint8)
 
-            analysis = analyze_face_comprehensive(
-                face_crop_rgb=crop,
-                bbox=d.bbox,
-                image_shape=(img_h, img_w),
-                confidence=d.confidence,
-                landmarks=d.landmarks,
-                face_id=d.face_id,
-                min_sharpness=self.min_sharpness,
-            )
-            analyses.append(analysis)
+                analysis = analyze_face_comprehensive(
+                    face_crop_rgb=crop,
+                    bbox=d.bbox,
+                    image_shape=(img_h, img_w),
+                    confidence=d.confidence,
+                    landmarks=d.landmarks,
+                    face_id=d.face_id,
+                    min_sharpness=self.min_sharpness,
+                )
+                analyses.append(analysis)
+            except Exception as exc:
+                logger.error("Error analyzing face detection %s: %s", getattr(d, 'face_id', 'unknown'), exc, exc_info=True)
+                try:
+                    safe_crop = np.empty((0, 0, 3), dtype=np.uint8)
+                    fallback_analysis = StructuredFaceAnalysis(
+                        face_id=getattr(d, "face_id", None),
+                        bbox=d.bbox,
+                        confidence=round(float(getattr(d, "confidence", 0.0)), 4),
+                        landmarks=[],
+                        landmark_metrics=None,
+                        pose=None,
+                        size=compute_face_size_metrics(d.bbox, (img_h, img_w)),
+                        illumination=compute_illumination_metrics(safe_crop),
+                        clarity=compute_clarity_metrics(safe_crop, min_sharpness_threshold=self.min_sharpness),
+                        quality=ComprehensiveFaceQuality(
+                            overall_quality=0.0,
+                            sharpness=0.0,
+                            brightness=0.0,
+                            contrast=0.0,
+                            is_usable=False,
+                            grade=QualityGrade.UNUSABLE,
+                        ),
+                    )
+                    analyses.append(fallback_analysis)
+                except Exception:
+                    pass
 
         return analyses

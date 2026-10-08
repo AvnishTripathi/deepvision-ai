@@ -27,6 +27,8 @@ from app.ai.analysis.landmarks import (
     landmarks_to_dict,
     format_structured_landmarks,
     landmarks_to_list,
+    validate_and_clip_landmarks,
+    validate_and_clip_landmarks_list,
 )
 from app.ai.analysis.pose import (
     CANONICAL_3D_MODEL_POINTS,
@@ -71,6 +73,8 @@ __all__ = [
     "landmarks_to_dict",
     "format_structured_landmarks",
     "landmarks_to_list",
+    "validate_and_clip_landmarks",
+    "validate_and_clip_landmarks_list",
     # 3D Head Pose
     "CANONICAL_3D_MODEL_POINTS",
     "HeadPoseEstimator",

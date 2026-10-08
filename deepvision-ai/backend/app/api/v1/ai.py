@@ -32,6 +32,10 @@ from app.schemas.ai import (
     PerformanceBreakdown,
 )
 from app.ai.analysis.schemas import AIAnalysisResponse
+from app.ai.analysis.landmarks import (
+    validate_and_clip_landmarks,
+    validate_and_clip_landmarks_list,
+)
 from app.services.ai_service import AIService, get_ai_service
 
 logger = logging.getLogger("deepvision.api.ai")
@@ -234,8 +238,8 @@ async def detect_faces(
                 y2=round(d.bbox.y2, 2),
             ),
             confidence=round(d.confidence, 4),
-            landmarks=d.landmarks,
-            landmarks_dict=d.landmarks_dict,
+            landmarks=validate_and_clip_landmarks_list(d.landmarks, w, h) if d.landmarks else None,
+            landmarks_dict=validate_and_clip_landmarks(d.landmarks, w, h) if d.landmarks else None,
         )
         for d in detection_result.detections
     ]
