@@ -1,22 +1,21 @@
 "use client";
 
-import { useState, useRef, ChangeEvent } from "react";
+import { useState, useRef } from "react";
 import {
-  UploadCloud,
-  Image as ImageIcon,
-  Trash2,
+  analyzeImageFile,
+} from "@/lib/api/image";
+import { ImageAnalysisResponse } from "@/lib/api/types";
+import FileUploadZone from "@/components/common/FileUploadZone";
+import FaceVisualizerCanvas from "@/components/image/FaceVisualizerCanvas";
+import FaceAnalysisCard from "@/components/image/FaceAnalysisCard";
+import {
   ScanFace,
   Sliders,
-  CheckCircle2,
-  AlertCircle,
   Loader2,
   Layers,
   Sparkles,
+  AlertCircle,
 } from "lucide-react";
-import { analyzeImage } from "@/lib/api";
-import { AIAnalysisResponse } from "@/types";
-import FaceVisualizerCanvas from "@/components/image/FaceVisualizerCanvas";
-import FaceAnalysisCard from "@/components/image/FaceAnalysisCard";
 
 export default function ImageAnalysisPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -25,31 +24,11 @@ export default function ImageAnalysisPage() {
 
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const [loadingStage, setLoadingStage] = useState<string>("Analyzing image...");
-  const [analysisResult, setAnalysisResult] = useState<AIAnalysisResponse | null>(null);
+  const [analysisResult, setAnalysisResult] = useState<ImageAnalysisResponse | null>(null);
   const [selectedFaceIndex, setSelectedFaceIndex] = useState<number>(0);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // File selection & validation
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      processFile(e.target.files[0]);
-    }
-  };
-
-  const processFile = (file: File) => {
-    const validTypes = ["image/jpeg", "image/png", "image/webp", "image/bmp"];
-    if (!validTypes.includes(file.type)) {
-      setErrorMessage("Unsupported format. Please upload JPG, PNG, WebP, or BMP.");
-      return;
-    }
-
-    if (file.size > 15 * 1024 * 1024) {
-      setErrorMessage("File exceeds 15 MB limit.");
-      return;
-    }
-
+  const handleFileSelect = (file: File) => {
     setErrorMessage(null);
     setSelectedFile(file);
     setAnalysisResult(null);
@@ -62,22 +41,12 @@ export default function ImageAnalysisPage() {
     reader.readAsDataURL(file);
   };
 
-  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      processFile(e.dataTransfer.files[0]);
-    }
-  };
-
   const handleClear = () => {
     setSelectedFile(null);
     setPreviewUrl(null);
     setAnalysisResult(null);
     setErrorMessage(null);
     setSelectedFaceIndex(0);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
-    }
   };
 
   // Run Real Backend Analysis
@@ -86,29 +55,34 @@ export default function ImageAnalysisPage() {
 
     setIsAnalyzing(true);
     setErrorMessage(null);
-    setLoadingStage("Analyzing image...");
+    setLoadingStage("Analyzing image payload...");
 
-    // Simulated realistic stage feedback during HTTP request
-    const t1 = setTimeout(() => setLoadingStage("Detecting faces with YuNet..."), 300);
-    const t2 = setTimeout(() => setLoadingStage("Calculating landmarks & 3D pose..."), 700);
-    const t3 = setTimeout(() => setLoadingStage("Evaluating quality score & clarity..."), 1100);
+    const t1 = setTimeout(() => setLoadingStage("Detecting faces with YuNet..."), 250);
+    const t2 = setTimeout(() => setLoadingStage("Calculating landmarks & 3D pose..."), 600);
+    const t3 = setTimeout(() => setLoadingStage("Evaluating quality score & clarity..."), 950);
 
     try {
-      const result = await analyzeImage(selectedFile, confidenceThreshold);
+      const result = await analyzeImageFile(selectedFile, {
+        confidenceThreshold,
+      });
       setAnalysisResult(result);
       setSelectedFaceIndex(0);
 
       // Record to session storage for dashboard
       try {
-        const curImg = parseInt(sessionStorage.getItem("dv_images_analyzed") || "0", 10) + 1;
-        const curFaces = parseInt(sessionStorage.getItem("dv_faces_detected") || "0", 10) + (result.face_count || 0);
+        const curImg =
+          parseInt(sessionStorage.getItem("dv_images_analyzed") || "0", 10) + 1;
+        const curFaces =
+          parseInt(sessionStorage.getItem("dv_faces_detected") || "0", 10) +
+          (result.face_count || 0);
         sessionStorage.setItem("dv_images_analyzed", curImg.toString());
         sessionStorage.setItem("dv_faces_detected", curFaces.toString());
       } catch {
         // Safe fallback
       }
-    } catch (err: any) {
-      setErrorMessage(err.message || "An unexpected error occurred during face analysis.");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unable to analyze this file. Please try again.";
+      setErrorMessage(msg);
     } finally {
       clearTimeout(t1);
       clearTimeout(t2);
@@ -125,45 +99,28 @@ export default function ImageAnalysisPage() {
           Image Face Analysis
         </h1>
         <p className="mt-1 text-sm text-slate-400">
-          Upload portrait or group photography for multi-face detection, 5-point landmarks, 3D head pose, and quality analytics.
+          Upload single portrait or multi-face photographs for YuNet detection, 5-point landmarks, 3D head pose, and comprehensive quality grading.
         </p>
       </div>
 
       {/* Main Analysis Section */}
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-12">
-        {/* Left Column: Dropzone & Image Canvas (7 cols on desktop) */}
+        {/* Left Column: Dropzone & Image Canvas (7 cols) */}
         <div className="space-y-6 lg:col-span-7">
           {!previewUrl ? (
-            /* Upload Dropzone */
-            <div
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
-              className="flex min-h-[360px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed border-slate-700/80 bg-dark-900/60 p-8 text-center transition-all hover:border-brand-cyan/50 hover:bg-dark-850/80 group"
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/bmp"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-cyan/10 text-brand-cyan transition-transform group-hover:scale-110 shadow-glow">
-                <UploadCloud className="h-8 w-8" />
-              </div>
-              <h3 className="mt-4 text-base font-semibold text-white">
-                Drag and drop an image, or click to browse
-              </h3>
-              <p className="mt-1.5 text-xs text-slate-400">
-                Supports JPG, PNG, WebP, and BMP (up to 15 MB)
-              </p>
-              <div className="mt-5 inline-flex items-center gap-2 rounded-xl bg-dark-800 px-4 py-2 text-xs font-medium text-slate-300 border border-slate-700">
-                <ImageIcon className="h-3.5 w-3.5 text-brand-cyan" />
-                <span>Select from computer</span>
-              </div>
-            </div>
+            <FileUploadZone
+              mediaType="image"
+              acceptedExtensions={[".jpg", ".jpeg", ".png", ".webp", ".bmp"]}
+              maxSizeMB={15}
+              selectedFile={selectedFile}
+              isLoading={isAnalyzing}
+              loadingMessage={loadingStage}
+              onFileSelect={handleFileSelect}
+              onClear={handleClear}
+              errorMessage={errorMessage}
+              onDismissError={() => setErrorMessage(null)}
+            />
           ) : (
-            /* Active Image Display */
             <div className="space-y-4">
               {/* Visualizer Canvas or Preview */}
               {analysisResult && previewUrl ? (
@@ -199,24 +156,13 @@ export default function ImageAnalysisPage() {
 
               {/* Action Toolbar */}
               <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-800/80 bg-dark-900/90 p-4">
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={handleClear}
-                    disabled={isAnalyzing}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-dark-800 px-3 py-2 text-xs font-semibold text-rose-400 hover:bg-dark-700 disabled:opacity-50"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                    <span>Remove</span>
-                  </button>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isAnalyzing}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-dark-800 px-3 py-2 text-xs font-semibold text-slate-300 hover:bg-dark-700 disabled:opacity-50"
-                  >
-                    <ImageIcon className="h-3.5 w-3.5" />
-                    <span>Replace Image</span>
-                  </button>
-                </div>
+                <button
+                  onClick={handleClear}
+                  disabled={isAnalyzing}
+                  className="rounded-lg border border-slate-700 bg-dark-800 px-3 py-2 text-xs font-semibold text-rose-400 hover:bg-dark-700 disabled:opacity-50"
+                >
+                  Remove Image
+                </button>
 
                 {/* Threshold Slider & Analyze Trigger */}
                 <div className="flex items-center gap-4">
@@ -241,7 +187,7 @@ export default function ImageAnalysisPage() {
                   <button
                     onClick={handleAnalyze}
                     disabled={isAnalyzing}
-                    className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-cyan to-brand-blue px-5 py-2.5 text-xs font-bold text-dark-950 shadow-glow hover:opacity-95 disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-brand-cyan to-brand-blue px-5 py-2.5 text-xs font-bold text-dark-950 shadow-glow hover:opacity-95 disabled:opacity-50 transition-all"
                   >
                     {isAnalyzing ? (
                       <>
@@ -260,7 +206,7 @@ export default function ImageAnalysisPage() {
             </div>
           )}
 
-          {/* Error Message Alert */}
+          {/* Error Alert */}
           {errorMessage && (
             <div className="flex items-center gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-xs text-rose-400">
               <AlertCircle className="h-5 w-5 shrink-0" />
@@ -269,7 +215,7 @@ export default function ImageAnalysisPage() {
           )}
         </div>
 
-        {/* Right Column: Face Analysis Results Panel (5 cols on desktop) */}
+        {/* Right Column: Face Analytics Panel (5 cols) */}
         <div className="space-y-6 lg:col-span-5">
           {analysisResult ? (
             <div className="space-y-6">
@@ -359,7 +305,7 @@ export default function ImageAnalysisPage() {
                 Face Analytics Panel
               </h4>
               <p className="text-xs text-slate-400 max-w-sm mx-auto leading-relaxed">
-                Upload a photograph and click <strong>Analyze Face</strong> to extract real facial bounding boxes, 5-point landmarks, 3D Euler angles, and quality scores directly from the backend.
+                Upload an image to begin face detection, landmark localization, 3D pose, and composite quality grading.
               </p>
             </div>
           )}
