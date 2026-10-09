@@ -108,6 +108,8 @@ class TrackingSummary(BaseModel):
     total_frames_processed: int = Field(..., ge=0, description="Total video frames processed")
     total_unique_tracks: int = Field(..., ge=0, description="Total count of unique temporary track IDs assigned")
     average_track_duration_frames: float = Field(0.0, description="Mean duration of tracks in frames")
+    peak_simultaneous_faces: int = Field(0, ge=0, description="Maximum simultaneous active faces observed in a single frame")
+    track_lost_count: int = Field(0, ge=0, description="Total count of track loss / temporary occlusion events")
     tracks: List[TrackMetadata] = Field(default_factory=list, description="Per-track summary lifecycle metadata")
 
     model_config = ConfigDict(populate_by_name=True)

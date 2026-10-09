@@ -191,6 +191,11 @@ class VideoProcessingService:
                     (metadata.width, metadata.height),
                 )
 
+        # Resolve processing intervals (Step 5.11)
+        det_interval = max(1, opts.detection_interval or opts.process_every_n_frames or settings.VIDEO_DETECTION_INTERVAL)
+        ana_interval = max(1, opts.analysis_interval or settings.VIDEO_ANALYSIS_INTERVAL)
+        track_analysis_cache: Dict[int, Dict[str, Any]] = {}
+
         # -------------------------------------------------------------
         # 3. Streaming Frame-by-Frame Processing Loop
         # (Does NOT load the entire video into RAM)
@@ -216,32 +221,35 @@ class VideoProcessingService:
                 if frame_idx >= max_limit:
                     break
 
-                # Frame skipping based on stride
-                if (frame_idx % opts.process_every_n_frames) != 0:
-                    frame_idx += 1
-                    continue
-
                 processed_frames_count += 1
                 frame_ts_ms = round((frame_idx / metadata.fps) * 1000.0, 2) if metadata.fps > 0 else None
 
                 # Convert BGR to RGB for model inference
                 frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
 
-                # --- A. Face Detection ---
-                det_t0 = time.perf_counter()
-                det_response = self._detector.detect(
-                    image_input=frame_rgb,
-                    confidence_threshold=opts.confidence_threshold,
-                )
-                det_t1 = time.perf_counter()
-                frame_det_ms = (det_t1 - det_t0) * 1000.0
-                total_detection_time += frame_det_ms
-                total_detections_count += len(det_response.detections)
+                # --- A. Face Detection (Interval-Gated) ---
+                run_detector_this_frame = (frame_idx % det_interval) == 0
+                frame_det_ms = 0.0
+
+                if run_detector_this_frame:
+                    det_t0 = time.perf_counter()
+                    det_response = self._detector.detect(
+                        image_input=frame_rgb,
+                        confidence_threshold=opts.confidence_threshold,
+                    )
+                    det_t1 = time.perf_counter()
+                    frame_det_ms = (det_t1 - det_t0) * 1000.0
+                    total_detection_time += frame_det_ms
+                    raw_detections = det_response.detections
+                    total_detections_count += len(raw_detections)
+                else:
+                    # Intermediate frame: detector skipped for throughput; tracker coasts via Kalman
+                    raw_detections = []
 
                 # --- B. Multi-Face Tracking (ByteTrack) ---
                 track_t0 = time.perf_counter()
                 active_tracks: List[TrackResult] = session_tracker.update(
-                    detections=det_response.detections,
+                    detections=raw_detections,
                     frame=frame_rgb,
                     frame_index=frame_idx,
                     timestamp_ms=frame_ts_ms,
@@ -250,39 +258,49 @@ class VideoProcessingService:
                 frame_track_ms = (track_t1 - track_t0) * 1000.0
                 total_tracking_time += frame_track_ms
 
-                # --- C. Face Analysis on Confirmed Tracks ---
+                # --- C. Face Analysis on Confirmed Tracks (Interval-Gated & Cached) ---
                 frame_analysis_ms = 0.0
+                run_analysis_this_frame = (frame_idx % ana_interval) == 0
+
                 if opts.enable_analysis and active_tracks:
                     ana_t0 = time.perf_counter()
-                    # Execute optical & quality analysis for confirmed tracks
                     for trk in active_tracks:
-                        # Extract crop if bounding box has positive area
-                        x1 = max(0, int(trk.bbox.x1))
-                        y1 = max(0, int(trk.bbox.y1))
-                        x2 = min(metadata.width, int(trk.bbox.x2))
-                        y2 = min(metadata.height, int(trk.bbox.y2))
-                        if x2 > x1 and y2 > y1:
-                            face_crop = frame_rgb[y1:y2, x1:x2]
-                            try:
-                                # Run fast optics diagnostics
-                                _, _, clarity = self._analysis_service.analyze_blur(face_crop)
-                                _, _, illum = self._analysis_service.analyze_brightness(face_crop)
-                                size_m = self._analysis_service.analyze_size(trk.bbox, (metadata.height, metadata.width))
-                                q_score, q_class, factors, grade = self._analysis_service.calculate_quality(
-                                    face_crop=face_crop,
-                                    bbox=trk.bbox,
-                                    image_shape=(metadata.height, metadata.width),
-                                    clarity_metrics=clarity,
-                                    illumination_metrics=illum,
-                                    size_metrics=size_m,
-                                    detection_confidence=trk.detection_confidence or trk.track_confidence,
-                                )
-                                # Attach lightweight quality fields to track representation
-                                trk_dict = getattr(trk, "__dict__", {})
-                                trk_dict["quality_score"] = q_score
-                                trk_dict["classification"] = q_class
-                            except Exception as err:
-                                logger.debug("Face analysis skipped on track %d: %s", trk.track_id, err)
+                        tid = trk.track_id
+                        if run_analysis_this_frame or tid not in track_analysis_cache:
+                            # Recompute optical & geometric quality diagnostics
+                            x1 = max(0, int(trk.bbox.x1))
+                            y1 = max(0, int(trk.bbox.y1))
+                            x2 = min(metadata.width, int(trk.bbox.x2))
+                            y2 = min(metadata.height, int(trk.bbox.y2))
+                            if x2 > x1 and y2 > y1:
+                                face_crop = frame_rgb[y1:y2, x1:x2]
+                                try:
+                                    _, _, clarity = self._analysis_service.analyze_blur(face_crop)
+                                    _, _, illum = self._analysis_service.analyze_brightness(face_crop)
+                                    size_m = self._analysis_service.analyze_size(trk.bbox, (metadata.height, metadata.width))
+                                    q_score, q_class, factors, grade = self._analysis_service.calculate_quality(
+                                        face_crop=face_crop,
+                                        bbox=trk.bbox,
+                                        image_shape=(metadata.height, metadata.width),
+                                        clarity_metrics=clarity,
+                                        illumination_metrics=illum,
+                                        size_metrics=size_m,
+                                        detection_confidence=trk.detection_confidence or trk.track_confidence,
+                                    )
+                                    track_analysis_cache[tid] = {
+                                        "quality_score": q_score,
+                                        "classification": q_class,
+                                    }
+                                except Exception as err:
+                                    logger.debug("Face analysis skipped on track %d: %s", tid, err)
+
+                        # Apply cached diagnostics to track representation
+                        if tid in track_analysis_cache:
+                            cached = track_analysis_cache[tid]
+                            trk_dict = getattr(trk, "__dict__", {})
+                            trk_dict["quality_score"] = cached.get("quality_score")
+                            trk_dict["classification"] = cached.get("classification")
+
                     ana_t1 = time.perf_counter()
                     frame_analysis_ms = (ana_t1 - ana_t0) * 1000.0
                     total_analysis_time += frame_analysis_ms
@@ -295,14 +313,19 @@ class VideoProcessingService:
                         detections=active_tracks,
                         return_rgb=False,
                     )
-                    # Overlay persistent session HUD (Frame, FPS, Active Tracks)
-                    hud_text = f"Frame: {frame_idx}/{metadata.frame_count} | Active Tracks: {len(active_tracks)} | Total Unique: {session_tracker.total_unique_tracks}"
+                    # Overlay persistent session HUD (Frame, FPS, Active Tracks, Peak Tracks)
+                    hud_text = (
+                        f"Frame: {frame_idx}/{metadata.frame_count} | "
+                        f"Active: {len(active_tracks)} | "
+                        f"Peak: {session_tracker.get_summary().peak_simultaneous_faces} | "
+                        f"Unique: {session_tracker.total_unique_tracks}"
+                    )
                     cv2.putText(
                         annotated_bgr,
                         hud_text,
                         (15, 30),
                         cv2.FONT_HERSHEY_SIMPLEX,
-                        0.65,
+                        0.60,
                         (0, 255, 255),
                         2,
                         cv2.LINE_AA,
@@ -317,7 +340,7 @@ class VideoProcessingService:
                         frame_index=frame_idx,
                         timestamp_ms=frame_ts_ms,
                         tracks=active_tracks,
-                        detection_count=len(det_response.detections),
+                        detection_count=len(raw_detections),
                         processing_time_ms=round(frame_det_ms + frame_track_ms + frame_analysis_ms, 2),
                     )
                 )
@@ -335,21 +358,25 @@ class VideoProcessingService:
                 video_writer.release()
 
         # -------------------------------------------------------------
-        # 4. Metrics & Summary Compilation
+        # 4. Metrics & Summary Compilation (Step 5.13)
         # -------------------------------------------------------------
         wall_end_time = time.perf_counter()
         elapsed_ms = round((wall_end_time - wall_start_time) * 1000.0, 2)
         fps_throughput = round((processed_frames_count / (elapsed_ms / 1000.0)), 2) if elapsed_ms > 0 else 0.0
+        avg_frame_time = round(elapsed_ms / max(1, processed_frames_count), 2)
 
         tracking_summary: TrackingSummary = session_tracker.get_summary()
 
         metrics = VideoProcessingMetrics(
-            total_frames_extracted=frame_idx,
-            total_frames_processed=processed_frames_count,
+            total_frames=metadata.frame_count,
+            processed_frames=processed_frames_count,
+            total_processing_time=elapsed_ms,
+            average_frame_processing_time=avg_frame_time,
+            average_fps=fps_throughput,
+            peak_simultaneous_faces=tracking_summary.peak_simultaneous_faces,
+            unique_track_count=tracking_summary.total_unique_tracks,
+            track_lost_count=tracking_summary.track_lost_count,
             total_faces_detected=total_detections_count,
-            total_unique_tracks=tracking_summary.total_unique_tracks,
-            elapsed_time_ms=elapsed_ms,
-            fps_throughput=fps_throughput,
             detection_time_ms=round(total_detection_time, 2),
             tracking_time_ms=round(total_tracking_time, 2),
             analysis_time_ms=round(total_analysis_time, 2),

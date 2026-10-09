@@ -80,6 +80,15 @@ class Settings(BaseSettings):
     MAX_IMAGE_SIZE_MB: int = 50
     MAX_VIDEO_SIZE_MB: int = 500
 
+    # Video Face Detection & Multi-Face Tracking Settings (Step 5.11)
+    VIDEO_DETECTION_INTERVAL: int = 1
+    VIDEO_ANALYSIS_INTERVAL: int = 5
+    VIDEO_MAX_FPS: Optional[float] = None
+    VIDEO_TRACKER_HIGH_THRESHOLD: float = 0.50
+    VIDEO_TRACKER_LOW_THRESHOLD: float = 0.15
+    VIDEO_TRACKER_MAX_TIME_LOST: int = 30
+    VIDEO_TRACKER_MIN_HITS: int = 2
+
     # Security
     SECRET_KEY: str = "deepvision-ai-development-secret-key-change-in-production"
     ALGORITHM: str = "HS256"

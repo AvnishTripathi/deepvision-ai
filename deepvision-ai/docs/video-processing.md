@@ -1,0 +1,167 @@
+# Video Face Detection & Multi-Face Tracking Pipeline
+
+**DeepVision AI — Video Processing Architecture & Technical Specification**  
+**Author**: DeepVision AI Computer Vision Engineering Team  
+**Status**: ACTIVE  
+**Milestone**: Step 5 (Video Face Detection & Multi-Face Tracking)  
+
+---
+
+## 1. Overview & Architecture
+
+DeepVision AI provides streaming, memory-efficient video face detection and multi-face tracking. The subsystem extracts video frames sequentially, performs joint face detection via OpenCV YuNet, tracks facial trajectories across time using ByteTrack with a 2D Kalman Filter, and overlays development telemetry and track cards onto an annotated output video.
+
+### End-to-End Pipeline
+
+```
+Video File Upload (MP4, AVI, MOV, MKV, WebM)
+      ↓
+Security & Container Validation (video_security.py)
+      ↓
+Stream Metadata Extraction (width, height, fps, duration)
+      ↓
+Streaming Frame Extraction (cap.read() — zero full-video RAM buffering)
+      ↓
+Face Detection (YuNet FaceDetector — interval-gated)
+      ↓
+Multi-Face Tracking (ByteTrackFaceTracker — 2D Kalman motion model)
+      ↓
+Face Analysis (FaceAnalysisService — quality/pose cached per track)
+      ↓
+Frame Annotation (FaceVisualizer — HUD, bounding boxes, Track IDs)
+      ↓
+Output Video Encoding (cv2.VideoWriter)
+      ↓
+Processing & Tracking Metrics Telemetry
+```
+
+---
+
+## 2. Configurable Performance Intervals (Step 5.11)
+
+To optimize CPU throughput while maintaining trajectory continuity, expensive pipeline stages can be executed at decoupled intervals:
+
+| Setting | Default | Description & Operational Effect |
+| :--- | :---: | :--- |
+| `VIDEO_DETECTION_INTERVAL` | `1` | Controls how frequently neural face detection executes. When set to `1`, detection runs on every frame. When set to $N > 1$, detector runs every $N$th frame; intermediate frames bypass the neural forward pass and coast existing tracks using Kalman velocity predictions, substantially boosting throughput. |
+| `VIDEO_ANALYSIS_INTERVAL` | `5` | Controls how frequently detailed optical diagnostics (Laplacian blur, ITU-R luminance, contrast, size category, 3D pose, quality score) are calculated for confirmed tracks. Diagnostics are cached and reused on intermediate frames, eliminating redundant crop processing. |
+| `VIDEO_MAX_FPS` | `None` | Optional target frame rate cap for frame subsampling. When specified, frames exceeding the target rate are skipped before inference. |
+
+---
+
+## 3. Track Lifecycle State Machine (Step 5.14)
+
+```
+        ┌────────────────────────────────┐
+        │     High-Score Detection       │
+        └────────────────┬───────────────┘
+                         │
+                         ▼
+        ┌────────────────────────────────┐
+        │      NEW TRACK (Tentative)     │
+        └────────────────┬───────────────┘
+                         │ hits >= min_hits (default: 2)
+                         ▼
+        ┌────────────────────────────────┐
+ ┌─────►│     ACTIVE TRACK (Confirmed)   │◄────┐
+ │      └────────────────┬───────────────┘     │
+ │                       │ missed in frame     │
+ │                       ▼                     │
+ │      ┌────────────────────────────────┐     │
+ │      │       TEMPORARILY LOST         │     │
+ │      │  (Coasting via Kalman filter)  │     │
+ │      └───────┬────────────────┬───────┘     │
+ │              │                │             │
+ │ ByteTrack    │                │ missed > max_time_lost
+ │ Reassociation│                ▼ (default: 30 frames)
+ └──────────────┘       ┌────────────────┐
+                        │   TERMINATED   │
+                        │   (Deleted)    │
+                        └────────────────┘
+```
+
+### State Definitions
+
+1. **New Track (`TENTATIVE`)**:
+   - Initialized when an unmatched high-confidence detection appears.
+   - Must be matched across consecutive frames ($N_{\text{hits}} \ge \text{min\_hits}$) before promotion to avoid false-positive track creation from transient artifacts.
+2. **Active Track (`CONFIRMED`)**:
+   - Promoted track assigned a sequential temporary `track_id` (`Track 1`, `Track 2`, ...).
+   - Kalman filter continuously updates bounding box position, aspect ratio, and velocity.
+3. **Temporarily Lost (`LOST`)**:
+   - Track missed in the current frame (due to sudden head rotation, extreme lighting change, motion blur, or partial hand occlusion).
+   - Position is coasted using constant-velocity Kalman prediction.
+   - ByteTrack Stage 2 attempts association with secondary low-confidence detections ($0.15 \le \text{conf} < 0.50$).
+4. **Reassociated**:
+   - Track is successfully matched again with a detection before expiration, recovering continuity without an ID switch.
+5. **Terminated (`DELETED`)**:
+   - Track exceeds `max_time_lost` consecutive missed frames (~1 second at 30 fps) and is permanently retired.
+
+---
+
+## 4. Track ID Invariants & Identity Rules (Step 5.3, 5.15)
+
+In compliance with DeepVision AI security controls:
+
+* **Predictable Local Counter**: Track IDs are strictly sequential integers starting from `1` (`Track 1`, `Track 2`, `Track 3`, ...).
+* **Job-Scoped Ephemerality**: Track IDs are unique **only within a single video processing job**.
+* **Zero Cross-Job Persistence**: Calling `tracker.reset()` or launching a new video job resets the counter back to `1`.
+* **Zero Identity Recognition**: Track IDs denote spatio-temporal geometric continuity only. They do **not** represent global user identity, person recognition, biometric profiles, or database matches.
+
+---
+
+## 5. Output Video Visual Specifications (Step 5.12)
+
+Annotated development videos render structured visual overlays:
+
+```
+┌──────────────────────┐
+│ Track ID: 7          │
+│ Confidence: 96%      │
+│ Quality: 91/100      │
+│ Status: Excellent    │
+└──────────────────────┘
+    •      •
+       •
+     •   •
+```
+
+* **Bounding Box**: Rendered in green (or status-coded color).
+* **Track Card**: Solid dark badge rendering `Track ID: X`, `Confidence: XX%`, optional `Quality: XX/100`, and `Status`.
+* **Facial Landmarks**: 5 canonical points (eyes, nose, mouth corners) in distinct color palette.
+* **Persistent Session HUD**: Overlaid top-left: `Frame: X/N | Active: Y | Peak: Z | Unique: U`.
+* **Prohibition**: **Zero identity names or biometric identifiers are ever rendered.**
+
+---
+
+## 6. Tracking & Telemetry Metrics (Step 5.13)
+
+The pipeline records actual measured metrics:
+
+```json
+{
+  "total_frames": 300,
+  "processed_frames": 300,
+  "total_processing_time": 4580.2,
+  "average_frame_processing_time": 15.27,
+  "average_fps": 65.5,
+  "peak_simultaneous_faces": 3,
+  "unique_track_count": 4,
+  "track_lost_count": 2,
+  "total_faces_detected": 892,
+  "detection_time_ms": 3120.5,
+  "tracking_time_ms": 140.2,
+  "analysis_time_ms": 520.1,
+  "annotation_time_ms": 799.4
+}
+```
+
+*Note on Evaluation*: DeepVision AI reports actual measured system execution throughput and trajectory statistics. Tracking accuracy metrics (e.g. MOTA, IDF1, HOTA) are not claimed without evaluation on a certified, ground-truth labeled benchmark dataset.
+
+---
+
+## 7. Known Tracking Limitations
+
+* **Severe Extended Occlusions**: When a face is occluded for longer than `max_time_lost` frames, the track is terminated. Upon re-emergence, a new track ID will be assigned.
+* **Extreme Cross-Overs**: When two faces of identical scale directly overlap and cross trajectories at high speed, geometric IoU matching may occasionally suffer track switching.
+* **Extreme Camera Motion**: In handheld footage with severe panning or violent shaking, background motion may degrade pure Kalman velocity estimations.

@@ -316,6 +316,8 @@ class ByteTrackFaceTracker(BaseFaceTracker):
         self._lost_stracks: List[KalmanBoxTracker] = []
         self._retired_tracks_history: List[KalmanBoxTracker] = []
         self._total_frames: int = 0
+        self._peak_simultaneous_faces: int = 0
+        self._track_lost_events: int = 0
 
     @property
     def active_track_count(self) -> int:
@@ -334,6 +336,8 @@ class ByteTrackFaceTracker(BaseFaceTracker):
         self._lost_stracks.clear()
         self._retired_tracks_history.clear()
         self._total_frames = 0
+        self._peak_simultaneous_faces = 0
+        self._track_lost_events = 0
         logger.debug("ByteTrackFaceTracker state reset successfully.")
 
     def _parse_detections(
@@ -499,6 +503,7 @@ class ByteTrackFaceTracker(BaseFaceTracker):
             track.mark_missed()
             if track.state_enum == TrackState.CONFIRMED:
                 track.state_enum = TrackState.LOST
+                self._track_lost_events += 1
             elif track.state_enum == TrackState.TENTATIVE:
                 track.state_enum = TrackState.DELETED
 
@@ -566,6 +571,9 @@ class ByteTrackFaceTracker(BaseFaceTracker):
                     )
                 )
 
+        # Update peak simultaneous faces observed in any single frame
+        self._peak_simultaneous_faces = max(self._peak_simultaneous_faces, len(output_results))
+
         return output_results
 
     def get_summary(self) -> TrackingSummary:
@@ -601,5 +609,7 @@ class ByteTrackFaceTracker(BaseFaceTracker):
             total_frames_processed=self._total_frames,
             total_unique_tracks=self.total_unique_tracks,
             average_track_duration_frames=round(avg_dur, 2),
+            peak_simultaneous_faces=self._peak_simultaneous_faces,
+            track_lost_count=self._track_lost_events,
             tracks=metadata_list,
         )
