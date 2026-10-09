@@ -105,23 +105,34 @@ Structured JSON Result
 * **Backward Compatibility**: Exact preservation of legacy `FaceQualityScore` and Step 2/3 contracts.
 * **Automated Test Suite**: 176/176 tests passing (30 new dedicated Step 4 tests).
 
-#### 🌟 Current Capabilities (End of Step 4)
-* **Real Image Face Detection**: Real, production neural network inference evaluating genuine photos without mocks.
-* **Multiple Faces**: Accurately detects and localizes multiple faces across varying scales, angles, and crowd densities in a single forward pass.
-* **Confidence Scores**: Authentic floating-point probability scores ($0.0 \dots 1.0$) directly calculated from model activations.
-* **Bounding Boxes**: Absolute, pixel-accurate bounding box coordinates ($x_1, y_1, x_2, y_2$) validated and clipped to original image bounds.
-* **5-Point Facial Landmarks**: Natively localized landmark points (eyes, nose, mouth corners) with sub-pixel precision.
-* **Geometric Facial Diagnostics**: Inter-pupillary distance (IPD), eye-line tilt angle, and bilateral facial symmetry.
-* **3D Head Pose Orientation**: Perspective-n-Point Euler rotation angles (Yaw, Pitch, Roll) and frontality score.
-* **Clarity & Blur Evaluation**: Laplacian variance sharpness, continuous blur score, and categorical classification.
-* **Illumination Diagnostics**: Mean luminance brightness, standard deviation contrast, and exposure classification.
-* **Scale & Resolution Diagnostics**: Face width, height, aspect ratio, area fraction, and biometric sufficiency check.
-* **Composite Quality Scoring**: Explainable, weighted quality score ($0.0 \dots 1.0$), qualitative grades, and usability verdict.
-* **Configurable Threshold**: Globally configurable detection sensitivity (`AI_CONFIDENCE_THRESHOLD`, default `0.6`) and per-request dynamic overrides.
-* **CPU/GPU Runtime**: Resilient hardware abstraction executing reliably on CPU with SIMD acceleration, with automatic GPU enablement.
-* **Inference Timing**: Real measured latency profiling returned in API responses and logged.
-* **REST API Endpoints**: Hardened, production-ready endpoints `POST /api/v1/ai/detect` and `POST /api/v1/ai/analyze`.
-* **Development Visualization**: Offline developer utility (`scripts/visualize_detections.py` and `app/ai/visualization/annotator.py`) to annotate images.
+### Current Capabilities
+
+✓ Real face detection
+✓ Multiple-face detection
+✓ Bounding boxes
+✓ Confidence scores
+✓ Facial landmarks
+✓ Blur analysis
+✓ Brightness analysis
+✓ Contrast analysis
+✓ Face-size analysis
+✓ Basic pose estimation
+✓ Face quality score
+
+#### Detailed Capabilities Breakdown
+* **✓ Real Face Detection**: Production YuNet & SCRFD ONNX models operating on genuine photos with real activations.
+* **✓ Multiple-Face Detection**: Detects and localizes multiple faces across varying scales and crowd densities in a single forward pass.
+* **✓ Bounding Boxes**: Absolute pixel coordinates validated and bounds-clipped to image dimensions.
+* **✓ Confidence Scores**: Authentic probability scores ($0.0 \dots 1.0$) calculated directly from neural activations.
+* **✓ Facial Landmarks**: 5 canonical landmarks (eyes, nose, mouth corners) with sub-pixel localization, IPD, and symmetry metrics.
+* **✓ Blur Analysis**: Laplacian variance spatial frequency analysis and continuous blur scoring (`sharp`, `slightly_blurred`, `blurry`).
+* **✓ Brightness Analysis**: ITU-R BT.601 photopic luminance evaluation and exposure status (`too_dark`, `acceptable`, `too_bright`).
+* **✓ Contrast Analysis**: Standard deviation luminance dynamic range diagnostics (`low_contrast`, `acceptable`, `high_contrast`).
+* **✓ Face-Size Analysis**: Bounding box width, height, aspect ratio, area coverage ratio, and biometric sufficiency check.
+* **✓ Basic Pose Estimation**: Perspective-n-Point Euler rotation angles (Yaw, Pitch, Roll) and frontality score (degrades gracefully to `null` on degenerate geometry).
+* **✓ Face Quality Score**: Explainable, transparent 0–100 composite score combining sharpness, brightness, contrast, size, and landmarks with bottleneck gating.
+* **✓ Granular Latency Profiling**: Real measured latencies for detection, landmarks, quality, pose, and total analysis.
+* **✓ Typed Configuration & Privacy**: Environment settings validation, zero-secret exposure, and zero permanent biometric disk storage.
 
 #### ⚠️ What is NOT Implemented Yet
 * ❌ **Identity Recognition / Biometric Matching**: No facial embeddings extraction, identity database matching, or biometric identification (`face_id: null`).
@@ -149,6 +160,8 @@ Structured JSON Result
 ## 📚 Technical Documentation
 
 - 🏛️ [AI Engine Architecture](docs/ai-architecture.md) — Architectural design, 9-stage pipeline, Face Analysis layer, component breakdown, and error shielding.
+- 🔬 [Face Analysis Methodology](docs/face-analysis.md) — Mathematical algorithms, landmark models, optical diagnostics, 3D pose, and 0–100 quality scoring.
+- 🛡️ [Security & Privacy Architecture](docs/security-and-privacy.md) — 9 ingestion defense layers, non-identification guarantees, and zero-persistence controls.
 - 🔬 [Face Landmark Model Selection](docs/face-landmark-model-selection.md) — Architectural evaluation and trade-off analysis of landmark extraction strategies.
 - 🔬 [AI Model Selection Report](docs/ai-model-selection.md) — Evaluation of SCRFD, YuNet, RetinaFace, and YOLO-Face on WIDER FACE benchmarks.
 - 📦 [Model Management Guide](docs/model-management.md) — Storage structure, versioning, download procedures, SHA-256 verification, and hardware variants.

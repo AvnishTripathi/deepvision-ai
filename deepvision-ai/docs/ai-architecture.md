@@ -206,20 +206,34 @@ Structured Face Analysis
 
 ---
 
-## 6. Current Capabilities (End of Step 4)
+## 6. Current Capabilities
 
-At the completion of Step 4, the DeepVision AI platform provides:
+✓ Real face detection
+✓ Multiple-face detection
+✓ Bounding boxes
+✓ Confidence scores
+✓ Facial landmarks
+✓ Blur analysis
+✓ Brightness analysis
+✓ Contrast analysis
+✓ Face-size analysis
+✓ Basic pose estimation
+✓ Face quality score
 
-* **Real Image Face Detection**: Production YuNet ONNX inference on single/multi-face scenes.
-* **5-Point Facial Landmarks**: Natively parsed during detection pass with zero overhead.
-* **Facial Geometry Diagnostics**: IPD, eye-line tilt angle, and bilateral facial symmetry.
-* **3D Head Pose Estimation**: Perspective-n-Point yaw, pitch, roll, frontality score, and pose classification.
-* **Clarity & Blur Detection**: Laplacian variance sharpness, blur score, and categorical rating.
-* **Illumination Diagnostics**: Luminance brightness, standard deviation contrast, and exposure classification.
-* **Face Scale & Resolution Diagnostics**: Width, height, aspect ratio, canvas area fraction, and size categories.
-* **Composite Quality Scoring**: Explainable, weighted quality score ($0.0 \dots 1.0$), qualitative grades, and usability verdict.
-* **Backward Compatible Quality API**: Legacy `FaceQualityScore` preserved for existing callers.
-* **REST API Endpoints**: `POST /api/v1/ai/detect` for fast face detection, and `POST /api/v1/ai/analyze` for comprehensive face analysis.
+### Detailed Capabilities Breakdown:
+* **✓ Real Face Detection**: Production YuNet & SCRFD ONNX inference on single/multi-face scenes without mocks.
+* **✓ Multiple-Face Detection**: Detects and localizes multiple faces across varying scales and crowd densities in a single forward pass.
+* **✓ Bounding Boxes**: Absolute, pixel-accurate bounding box coordinates ($x_1, y_1, x_2, y_2$) validated and clipped to original image bounds.
+* **✓ Confidence Scores**: Authentic floating-point probability scores ($0.0 \dots 1.0$) directly calculated from model activations.
+* **✓ Facial Landmarks**: 5-point facial landmarks (eyes, nose, mouth corners) natively parsed with sub-pixel localization, IPD, and symmetry metrics.
+* **✓ Blur Analysis**: Laplacian variance spatial frequency analysis, continuous blur score, and categorical status (`sharp`, `slightly_blurred`, `blurry`).
+* **✓ Brightness Analysis**: Photopic luminance brightness, continuous exposure score, and status (`too_dark`, `acceptable`, `too_bright`).
+* **✓ Contrast Analysis**: Standard deviation luminance dynamic range diagnostics (`low_contrast`, `acceptable`, `high_contrast`).
+* **✓ Face-Size Analysis**: Bounding box width, height, aspect ratio, canvas area fraction, scale categories, and biometric sufficiency check.
+* **✓ Basic Pose Estimation**: Perspective-n-Point Euler rotation angles (Yaw, Pitch, Roll in degrees), frontality score, and orientation categories (degrades to `null` on degenerate geometry).
+* **✓ Face Quality Score**: Transparent 0–100 composite quality score combining sharpness, brightness, contrast, size, and landmark quality with bottleneck gating.
+* **✓ Granular Stage Latencies**: Real measured timing profiling for detection, landmarks, quality, pose, and total analysis.
+* **✓ REST API Endpoints**: Production-ready endpoints `POST /api/v1/ai/detect` and `POST /api/v1/ai/analyze` with partial results error resilience.
 
 ---
 
