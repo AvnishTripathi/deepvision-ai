@@ -169,13 +169,23 @@ def probe_and_validate_video(
             codec_chars = [chr((fourcc_int >> 8 * i) & 0xFF) for i in range(4)]
             codec_str = "".join(codec_chars).strip()
 
+        max_w = getattr(settings, "VIDEO_MAX_WIDTH", MAX_VIDEO_WIDTH)
+        max_h = getattr(settings, "VIDEO_MAX_HEIGHT", MAX_VIDEO_HEIGHT)
+        max_f = getattr(settings, "VIDEO_MAX_FRAME_COUNT", 18000)
+        max_dur = max_duration_seconds or getattr(settings, "VIDEO_MAX_DURATION_SECONDS", MAX_VIDEO_DURATION_SECONDS)
+
         # Check for zero or negative dimensions
         if width <= 0 or height <= 0:
             raise CorruptedVideoException(f"Invalid video dimensions: {width}x{height}px.")
 
-        if width > MAX_VIDEO_WIDTH or height > MAX_VIDEO_HEIGHT:
+        if width > max_w or height > max_h:
             raise CorruptedVideoException(
-                f"Video resolution {width}x{height}px exceeds maximum allowed limit of {MAX_VIDEO_WIDTH}x{MAX_VIDEO_HEIGHT}px."
+                f"Video resolution {width}x{height}px exceeds maximum allowed limit of {max_w}x{max_h}px."
+            )
+
+        if frame_count > max_f:
+            raise VideoDurationExceededException(
+                f"Video frame count ({frame_count}) exceeds maximum allowed limit of {max_f} frames."
             )
 
         # Validate readability by reading the very first frame
@@ -193,9 +203,9 @@ def probe_and_validate_video(
 
         duration_sec = round(frame_count / fps, 3) if (fps > 0 and frame_count > 0) else None
 
-        if duration_sec is not None and duration_sec > max_duration_seconds:
+        if duration_sec is not None and duration_sec > max_dur:
             raise VideoDurationExceededException(
-                f"Video duration ({duration_sec:.1f}s) exceeds maximum allowed duration of {max_duration_seconds}s."
+                f"Video duration ({duration_sec:.1f}s) exceeds maximum allowed duration of {max_dur}s."
             )
 
         return VideoMetadata(

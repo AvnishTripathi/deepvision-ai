@@ -314,6 +314,13 @@ class VideoDurationExceededException(VideoException):
         super().__init__(message=message, error_code="video_duration_exceeded", status_code=400)
 
 
+class VideoProcessingCancelledException(VideoException):
+    """Raised when a video processing job is cancelled by client request."""
+
+    def __init__(self, message: str = "Video processing job was cancelled."):
+        super().__init__(message=message, error_code="job_cancelled", status_code=200)
+
+
 # -----------------------------------------------------------------------------
 # Storage & Database Exceptions
 # -----------------------------------------------------------------------------

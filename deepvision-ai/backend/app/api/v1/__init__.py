@@ -7,3 +7,4 @@ api_router = APIRouter()
 api_router.include_router(health_router)
 api_router.include_router(ai_router)
 api_router.include_router(video_router)
+

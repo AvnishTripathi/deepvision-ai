@@ -117,6 +117,37 @@ def get_job_status(
     return status_response
 
 
+@router.post(
+    "/jobs/{job_id}/cancel",
+    summary="Cancel Video Processing Job",
+    description="""
+    Requests cancellation of an ongoing or queued video processing job.
+    Cleanly releases all system resources, halts processing, and marks job cancelled.
+    """,
+)
+def cancel_job(
+    job_id: str,
+    job_manager: BaseVideoJobManager = Depends(get_video_job_manager),
+) -> dict:
+    """Cancels an active or queued video processing job."""
+    success, message = job_manager.cancel_job(job_id)
+    if not success:
+        if "not found" in message.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=message,
+            )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=message,
+        )
+    return {
+        "job_id": job_id,
+        "status": "cancelled",
+        "message": message,
+    }
+
+
 @router.get(
     "/jobs/{job_id}/download",
     summary="Download Annotated Video Artifact",
@@ -155,3 +186,4 @@ def download_annotated_video(
         media_type="video/mp4",
         filename=f"deepvision_annotated_{job_id[:8]}.mp4",
     )
+

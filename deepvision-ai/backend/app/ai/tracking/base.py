@@ -64,6 +64,12 @@ class BaseFaceTracker(ABC):
         """Total count of unique temporary track IDs assigned during this session."""
         pass
 
+    @property
+    @abstractmethod
+    def lost_track_count(self) -> int:
+        """Total count of track loss events observed during this session."""
+        pass
+
     @abstractmethod
     def get_summary(self) -> TrackingSummary:
         """Returns aggregate lifecycle summary metrics for all tracks observed during the session."""

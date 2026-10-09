@@ -26,6 +26,7 @@ from app.core.exceptions import (
     EmptyVideoException,
     VideoTooLargeException,
     UnsupportedVideoError,
+    VideoProcessingCancelledException,
 )
 from app.core.video_security import (
     probe_and_validate_video,
@@ -111,6 +112,7 @@ class VideoProcessingService:
         output_dir: Optional[str] = None,
         options: Optional[VideoProcessingOptions] = None,
         progress_callback: Optional[Any] = None,
+        is_cancelled: Optional[Any] = None,
     ) -> VideoProcessingResult:
         """
         Processes a video file completely through the streaming detection and tracking pipeline.
@@ -120,6 +122,7 @@ class VideoProcessingService:
             output_dir: Optional directory for saving the annotated video artifact.
             options: Video processing options (frame stride, max frames, annotation flag, etc.).
             progress_callback: Optional callable receiving (current_frame, total_frames, percent).
+            is_cancelled: Optional callable returning True if client requested job cancellation.
             
         Returns:
             VideoProcessingResult: Complete telemetry, metadata, tracking summary, and artifact paths.
@@ -217,6 +220,16 @@ class VideoProcessingService:
                 ret, frame_bgr = cap.read()
                 if not ret or frame_bgr is None:
                     break
+
+                # Step 5.21: Cancellation check
+                if is_cancelled and is_cancelled():
+                    logger.info("Video processing loop received cancellation request at frame %d.", frame_idx)
+                    if output_video_path and os.path.exists(output_video_path):
+                        try:
+                            os.remove(output_video_path)
+                        except OSError:
+                            pass
+                    raise VideoProcessingCancelledException(f"Video job was cancelled by client at frame {frame_idx}.")
 
                 if frame_idx >= max_limit:
                     break

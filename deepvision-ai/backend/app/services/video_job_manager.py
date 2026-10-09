@@ -21,6 +21,7 @@ from app.schemas.video_job import (
     VideoJobCreateResponse,
     VideoJobStatusResponse,
 )
+from app.core.exceptions import VideoProcessingCancelledException
 from app.services.video_processing_service import (
     VideoProcessingService,
     get_video_processing_service,
@@ -55,6 +56,15 @@ class VideoJobRecord:
         self.total_frames = 0
         self.metrics: Optional[Dict[str, Any]] = None
         self.error: Optional[str] = None
+        self._cancellation_event = threading.Event()
+
+    def request_cancellation(self) -> None:
+        """Signals background worker to terminate processing loop."""
+        self._cancellation_event.set()
+
+    def is_cancelled(self) -> bool:
+        """Returns True if cancellation was requested."""
+        return self._cancellation_event.is_set()
 
     def to_status_response(self) -> VideoJobStatusResponse:
         """Converts internal record to client-safe response (no server paths)."""
@@ -99,6 +109,11 @@ class BaseVideoJobManager(ABC):
     @abstractmethod
     def get_output_artifact_path(self, job_id: str) -> Optional[str]:
         """Returns physical path to annotated video artifact for downloading."""
+        pass
+
+    @abstractmethod
+    def cancel_job(self, job_id: str) -> tuple[bool, str]:
+        """Attempts to cancel job. Returns (success, message)."""
         pass
 
 
@@ -163,11 +178,39 @@ class InMemoryVideoJobManager(BaseVideoJobManager):
                 return None
             return self._storage.get_local_path(record.output_storage_key)
 
+    def cancel_job(self, job_id: str) -> tuple[bool, str]:
+        """Attempts to cancel an active or queued job."""
+        with self._lock:
+            record = self._jobs.get(job_id)
+            if not record:
+                return False, f"Video job '{job_id}' not found."
+
+            if record.status == VideoJobStatus.COMPLETED:
+                return False, "Cannot cancel a completed job."
+
+            if record.status in (VideoJobStatus.CANCELLED, VideoJobStatus.FAILED):
+                return False, f"Job is already in '{record.status.value}' state."
+
+            if record.status == VideoJobStatus.QUEUED:
+                record.status = VideoJobStatus.CANCELLED
+                record.completed_at = datetime.now(timezone.utc)
+                record.error = "Job cancelled before execution began."
+                return True, "Queued job was cancelled successfully."
+
+            # If currently PROCESSING:
+            record.request_cancellation()
+            record.status = VideoJobStatus.CANCELLED
+            record.completed_at = datetime.now(timezone.utc)
+            record.error = "Job cancellation requested by client."
+            return True, "Job cancellation initiated successfully."
+
     def _execute_job(self, job_id: str) -> None:
         """Background execution worker method."""
         with self._lock:
             record = self._jobs.get(job_id)
             if not record:
+                return
+            if record.status == VideoJobStatus.CANCELLED:
                 return
             record.status = VideoJobStatus.PROCESSING
             record.started_at = datetime.now(timezone.utc)
@@ -199,6 +242,7 @@ class InMemoryVideoJobManager(BaseVideoJobManager):
                 video_input_path=input_path,
                 options=record.options,
                 progress_callback=progress_callback,
+                is_cancelled=record.is_cancelled,
             )
 
             # Store generated output video
@@ -212,31 +256,40 @@ class InMemoryVideoJobManager(BaseVideoJobManager):
                     pass
 
             with self._lock:
-                record.status = VideoJobStatus.COMPLETED
-                record.completed_at = datetime.now(timezone.utc)
-                record.progress = 100
-                record.total_frames = result.metadata.frame_count
-                record.processed_frames = result.metrics.processed_frames
-                record.output_storage_key = output_key
-                record.metrics = {
-                    "unique_track_count": result.metrics.unique_track_count,
-                    "peak_simultaneous_faces": result.metrics.peak_simultaneous_faces,
-                    "average_fps": result.metrics.average_fps,
-                    "total_frames": result.metrics.total_frames,
-                    "processed_frames": result.metrics.processed_frames,
-                    "total_processing_time": result.metrics.total_processing_time,
-                    "average_frame_processing_time": result.metrics.average_frame_processing_time,
-                    "track_lost_count": result.metrics.track_lost_count,
-                    "total_faces_detected": result.metrics.total_faces_detected,
-                }
+                # Do not overwrite if cancellation intervened
+                if record.status != VideoJobStatus.CANCELLED:
+                    record.status = VideoJobStatus.COMPLETED
+                    record.completed_at = datetime.now(timezone.utc)
+                    record.progress = 100
+                    record.total_frames = result.metadata.frame_count
+                    record.processed_frames = result.metrics.processed_frames
+                    record.output_storage_key = output_key
+                    record.metrics = {
+                        "unique_track_count": result.metrics.unique_track_count,
+                        "peak_simultaneous_faces": result.metrics.peak_simultaneous_faces,
+                        "average_fps": result.metrics.average_fps,
+                        "total_frames": result.metrics.total_frames,
+                        "processed_frames": result.metrics.processed_frames,
+                        "total_processing_time": result.metrics.total_processing_time,
+                        "average_frame_processing_time": result.metrics.average_frame_processing_time,
+                        "track_lost_count": result.metrics.track_lost_count,
+                        "total_faces_detected": result.metrics.total_faces_detected,
+                    }
 
-            logger.info("Video job %s completed successfully in %.2fms", job_id, result.metrics.total_processing_time)
+            logger.info("Video job %s completed in %.2fms", job_id, result.metrics.total_processing_time)
+
+        except VideoProcessingCancelledException as exc:
+            logger.info("Video job %s successfully stopped on cancellation: %s", job_id, exc)
+            with self._lock:
+                record.status = VideoJobStatus.CANCELLED
+                record.error = "Job cancelled by client request."
+                record.completed_at = datetime.now(timezone.utc)
 
         except Exception as exc:
             logger.exception("Video processing job %s failed: %s", job_id, exc)
             with self._lock:
                 record.status = VideoJobStatus.FAILED
-                record.error = str(exc)
+                record.error = "An unexpected error occurred during video processing."
                 record.completed_at = datetime.now(timezone.utc)
 
 
@@ -250,3 +303,4 @@ def get_video_job_manager() -> BaseVideoJobManager:
     if _video_job_manager is None:
         _video_job_manager = InMemoryVideoJobManager()
     return _video_job_manager
+

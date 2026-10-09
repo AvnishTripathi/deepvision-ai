@@ -329,6 +329,11 @@ class ByteTrackFaceTracker(BaseFaceTracker):
         """Total sequential track IDs assigned during this session."""
         return self._next_track_id - 1
 
+    @property
+    def lost_track_count(self) -> int:
+        """Total count of track loss events observed during this session."""
+        return self._track_lost_events
+
     def reset(self) -> None:
         """Resets tracker state, clearing all active tracks and resetting track IDs."""
         self._next_track_id = 1

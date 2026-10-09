@@ -89,6 +89,13 @@ class Settings(BaseSettings):
     VIDEO_TRACKER_MAX_TIME_LOST: int = 30
     VIDEO_TRACKER_MIN_HITS: int = 2
 
+    # Video Security & Resource Limits (Step 5.24)
+    VIDEO_MAX_FILE_SIZE_MB: int = 500
+    VIDEO_MAX_DURATION_SECONDS: float = 600.0
+    VIDEO_MAX_WIDTH: int = 4096
+    VIDEO_MAX_HEIGHT: int = 4096
+    VIDEO_MAX_FRAME_COUNT: int = 18000
+
     # Security
     SECRET_KEY: str = "deepvision-ai-development-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
