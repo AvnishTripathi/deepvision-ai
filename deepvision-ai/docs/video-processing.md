@@ -160,8 +160,54 @@ The pipeline records actual measured metrics:
 
 ---
 
-## 7. Known Tracking Limitations
+## 7. Asynchronous Job Lifecycle & Storage (Step 5.16, 5.19, 5.21)
+
+Video processing tasks are handled via an asynchronous job abstraction decoupled from the HTTP request-response cycle:
+
+```
+[POST /api/v1/video/analyze]
+            ↓
+       Job Created
+       (status: queued)
+            ↓
+  Worker Thread Pool Launches
+       (status: processing)
+    ┌───────┴───────┐
+    ▼               ▼
+Completed        Cancelled / Failed
+(status: completed) (status: cancelled / failed)
+[GET /jobs/{id}/download]
+```
+
+### Job States
+- `queued`: Video uploaded, validated, and enqueued for worker execution.
+- `processing`: Frame streaming loop actively running face detection, ByteTrack tracking, analysis, and annotation. Progress percentage is dynamically updated (`0%` to `100%`).
+- `completed`: Pipeline finished; metrics telemetry compiled and annotated video written to storage. Client can stream output via `/api/v1/video/jobs/{job_id}/download`.
+- `cancelled`: Client issued `POST /api/v1/video/jobs/{job_id}/cancel`. Worker safely halted, video writers flushed and closed, and partial artifacts purged.
+- `failed`: Processing encountered an error (e.g. corrupt codec or disk full). Safe, user-facing error message recorded; internal traces are kept server-side.
+
+### Storage Abstraction
+File storage is mediated by `LocalStorageBackend` implementing `BaseStorageBackend`. Disk paths are strictly isolated on the host system and never exposed across the REST interface.
+
+---
+
+## 8. Resource Limits & Security Bounds (Step 5.24)
+
+To prevent resource exhaustion and Denial-of-Service attacks, the following limits are enforced:
+
+| Constraint | Limit | Description |
+| :--- | :---: | :--- |
+| `VIDEO_MAX_FILE_SIZE_MB` | `500 MB` | Upper threshold for uploaded video containers. |
+| `VIDEO_MAX_DURATION_SECONDS` | `600 s` (10 min) | Maximum video presentation duration. |
+| `VIDEO_MAX_FRAME_COUNT` | `18,000 frames` | Hard limit on total decodable frames. |
+| `VIDEO_MAX_WIDTH` | `3840 px` (4K) | Maximum allowable video frame width. |
+| `VIDEO_MAX_HEIGHT` | `2160 px` (4K) | Maximum allowable video frame height. |
+| Supported Containers | `.mp4`, `.avi`, `.mov`, `.mkv`, `.webm` | Validated by magic byte probing and stream header inspection. |
+
+---
+
+## 9. Known Tracking Limitations
 
 * **Severe Extended Occlusions**: When a face is occluded for longer than `max_time_lost` frames, the track is terminated. Upon re-emergence, a new track ID will be assigned.
-* **Extreme Cross-Overs**: When two faces of identical scale directly overlap and cross trajectories at high speed, geometric IoU matching may occasionally suffer track switching.
-* **Extreme Camera Motion**: In handheld footage with severe panning or violent shaking, background motion may degrade pure Kalman velocity estimations.
+* **Extreme Cross-Overs**: When two faces of identical scale directly overlap and cross trajectories at high speed, geometric IoU matching may occasionally suffer track switching without appearance embeddings.
+* **Violent Camera Motion**: In handheld footage with sudden jarring camera pans, visual motion blur can cause temporary detection drops; the Kalman filter coasts the bounding box, but extreme shifts may require track re-initialization.

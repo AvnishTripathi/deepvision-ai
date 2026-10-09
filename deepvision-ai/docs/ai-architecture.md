@@ -206,44 +206,49 @@ Structured Face Analysis
 
 ---
 
-## 6. Current Capabilities
+## 6. Video Processing & Multi-Face Tracking Engine (Step 5)
 
-✓ Real face detection
-✓ Multiple-face detection
-✓ Bounding boxes
-✓ Confidence scores
-✓ Facial landmarks
-✓ Blur analysis
-✓ Brightness analysis
-✓ Contrast analysis
-✓ Face-size analysis
-✓ Basic pose estimation
-✓ Face quality score
+DeepVision AI incorporates a decoupled video analytics subsystem under `app/ai/tracking/` and `app/services/`:
 
-### Detailed Capabilities Breakdown:
-* **✓ Real Face Detection**: Production YuNet & SCRFD ONNX inference on single/multi-face scenes without mocks.
-* **✓ Multiple-Face Detection**: Detects and localizes multiple faces across varying scales and crowd densities in a single forward pass.
-* **✓ Bounding Boxes**: Absolute, pixel-accurate bounding box coordinates ($x_1, y_1, x_2, y_2$) validated and clipped to original image bounds.
-* **✓ Confidence Scores**: Authentic floating-point probability scores ($0.0 \dots 1.0$) directly calculated from model activations.
-* **✓ Facial Landmarks**: 5-point facial landmarks (eyes, nose, mouth corners) natively parsed with sub-pixel localization, IPD, and symmetry metrics.
-* **✓ Blur Analysis**: Laplacian variance spatial frequency analysis, continuous blur score, and categorical status (`sharp`, `slightly_blurred`, `blurry`).
-* **✓ Brightness Analysis**: Photopic luminance brightness, continuous exposure score, and status (`too_dark`, `acceptable`, `too_bright`).
-* **✓ Contrast Analysis**: Standard deviation luminance dynamic range diagnostics (`low_contrast`, `acceptable`, `high_contrast`).
-* **✓ Face-Size Analysis**: Bounding box width, height, aspect ratio, canvas area fraction, scale categories, and biometric sufficiency check.
-* **✓ Basic Pose Estimation**: Perspective-n-Point Euler rotation angles (Yaw, Pitch, Roll in degrees), frontality score, and orientation categories (degrades to `null` on degenerate geometry).
-* **✓ Face Quality Score**: Transparent 0–100 composite quality score combining sharpness, brightness, contrast, size, and landmark quality with bottleneck gating.
-* **✓ Granular Stage Latencies**: Real measured timing profiling for detection, landmarks, quality, pose, and total analysis.
-* **✓ REST API Endpoints**: Production-ready endpoints `POST /api/v1/ai/detect` and `POST /api/v1/ai/analyze` with partial results error resilience.
+1. **Tracking Algorithm (ByteTrack)**: Operates strictly on spatial 2D bounding-box kinematics using an 8-state constant-velocity Kalman filter ($[x_c, y_c, a, h, \dot{x}_c, \dot{y}_c, \dot{a}, \dot{h}]$) and two-stage association.
+2. **Session Track ID Semantics**: Emits temporary, sequential integers (`track_id: 1, 2, ...`). Zero biometric embeddings or cross-video profiles are ever created or retained.
+3. **Streaming Pipeline**: Reads video frames sequentially via `cv2.VideoCapture` without buffering complete videos in memory.
+4. **Decoupled Interval Gating**: Neural face detection is executed every `VIDEO_DETECTION_INTERVAL` frames, while facial quality diagnostics are executed every `VIDEO_ANALYSIS_INTERVAL` frames. Intermediate frames coast existing tracks via Kalman velocity forecasting.
+5. **Asynchronous Job Management**: Jobs are executed in a worker thread pool with status tracking (`queued`, `processing`, `completed`, `failed`, `cancelled`), storage abstraction, and resource cleanup.
 
 ---
 
-## 7. What is NOT Implemented Yet
+## 7. Current Capabilities
 
-To preserve architectural boundaries and development discipline, the following features are explicitly **NOT** implemented in Step 4:
+✓ Image face detection
+✓ Facial landmarks
+✓ Face quality analysis
+✓ Video face detection
+✓ Multi-face tracking
+✓ Temporary Track IDs
+✓ Video processing metrics
+✓ Annotated video output
+✓ Video processing job API
 
-* ❌ **Identity Recognition / Biometric Matching**: No facial embeddings extraction, identity database matching, or biometric identification. All detections maintain `face_id: null`.
-* ❌ **Multi-Frame Video Tracking**: No temporal trajectory tracking across video frames (e.g. ByteTrack, SORT) or track ID continuity.
-* ❌ **Webcam Streaming WebSocket**: Real-time live webcam frame-by-frame streaming over WebSocket is not yet connected to the deep face detection engine.
+### Detailed Capabilities Breakdown:
+* **✓ Image Face Detection**: Production YuNet & SCRFD ONNX inference on single/multi-face scenes without mocks.
+* **✓ Facial Landmarks**: 5-point facial landmarks (eyes, nose, mouth corners) natively parsed with sub-pixel localization, IPD, and symmetry metrics.
+* **✓ Face Quality Analysis**: Comprehensive composite quality scoring (0–100) combining sharpness, brightness, contrast, size, and 3D head pose.
+* **✓ Video Face Detection**: Sequential frame-by-frame face localization across video files without memory accumulation.
+* **✓ Multi-Face Tracking**: Real-time ByteTrack multi-object tracking associating bounding boxes across time with Kalman motion forecasting.
+* **✓ Temporary Track IDs**: Strictly local, sequential track IDs per video session with zero cross-video persistence or biometric identification.
+* **✓ Video Processing Metrics**: Real measured telemetry including processing FPS, latency breakdowns, peak simultaneous faces, unique track count, and track lost events.
+* **✓ Annotated Video Output**: Production visualizer producing downloadable MP4 video files with HUD cards and landmark overlays.
+* **✓ Video Processing Job API**: Asynchronous job submission, progress tracking, output downloading, and job cancellation endpoints.
+
+---
+
+## 8. What is NOT Implemented Yet
+
+To preserve architectural boundaries and development discipline, the following features are explicitly **NOT** implemented in Step 5:
+
+* ❌ **Identity Recognition / Biometric Matching**: No facial embeddings extraction, identity database matching, or biometric identification. All detections maintain ephemeral track IDs only.
+* ❌ **Webcam Streaming WebSocket**: Real-time live webcam frame-by-frame streaming over WebSocket is not yet connected.
 * ❌ **Liveness & Anti-Spoofing Detection**: No 2D/3D print attack, screen replay, or silicon mask anti-spoofing verification models.
 * ❌ **Final Production Dashboard**: The analytics UI dashboard is not built yet.
 

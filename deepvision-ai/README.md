@@ -103,41 +103,44 @@ Structured JSON Result
   - `schemas.py`: Strongly typed Pydantic v2 schemas for all diagnostic metrics.
 * **REST API Endpoint**: Added `POST /api/v1/ai/analyze` returning complete `AIAnalysisResponse` with granular per-face diagnostics.
 * **Backward Compatibility**: Exact preservation of legacy `FaceQualityScore` and Step 2/3 contracts.
-* **Automated Test Suite**: 176/176 tests passing (30 new dedicated Step 4 tests).
+* **Automated Test Suite**: 176/176 tests passing.
+
+### **Step 5 — Video Face Detection & Multi-Face Tracking** ✅ `Completed`
+* **Multi-Face Tracker**: Implemented ByteTrack engine (`app/ai/tracking/tracker.py`) with 8D constant-velocity Kalman filter and two-stage BYTE data association.
+* **Temporary Track IDs**: Ephemeral, session-scoped integer IDs (`track_id: 1, 2, ...`) denoting spatio-temporal continuity. Zero biometric identity profiles or face recognition.
+* **Streaming Video Pipeline**: Memory-efficient streaming loop (`cap.read()`) in `VideoProcessingService` preventing full-video RAM buffering.
+* **Performance Intervals**: Configurable `VIDEO_DETECTION_INTERVAL=1` and `VIDEO_ANALYSIS_INTERVAL=5` with Kalman coasting on intermediate frames.
+* **Annotated Video Generation**: Generates MP4 output rendering HUD cards with Track ID, confidence, status, quality score, and session telemetry.
+* **Asynchronous Jobs & Storage**: Decoupled `VideoJobManager` and `LocalStorageBackend` providing job lifecycles (`queued`, `processing`, `completed`, `failed`, `cancelled`) without exposing filesystem paths.
+* **REST API**: Added `POST /api/v1/video/analyze`, `GET /api/v1/video/jobs/{id}`, `GET /api/v1/video/jobs/{id}/download`, and `POST /api/v1/video/jobs/{id}/cancel`.
+* **Automated Test Suite**: 311/311 tests passing across the repository (25 dedicated video tracking tests).
 
 ### Current Capabilities
 
-✓ Real face detection
-✓ Multiple-face detection
-✓ Bounding boxes
-✓ Confidence scores
+✓ Image face detection
 ✓ Facial landmarks
-✓ Blur analysis
-✓ Brightness analysis
-✓ Contrast analysis
-✓ Face-size analysis
-✓ Basic pose estimation
-✓ Face quality score
+✓ Face quality analysis
+✓ Video face detection
+✓ Multi-face tracking
+✓ Temporary Track IDs
+✓ Video processing metrics
+✓ Annotated video output
+✓ Video processing job API
 
 #### Detailed Capabilities Breakdown
-* **✓ Real Face Detection**: Production YuNet & SCRFD ONNX models operating on genuine photos with real activations.
-* **✓ Multiple-Face Detection**: Detects and localizes multiple faces across varying scales and crowd densities in a single forward pass.
-* **✓ Bounding Boxes**: Absolute pixel coordinates validated and bounds-clipped to image dimensions.
-* **✓ Confidence Scores**: Authentic probability scores ($0.0 \dots 1.0$) calculated directly from neural activations.
+* **✓ Image Face Detection**: Production YuNet & SCRFD ONNX models operating on genuine photos with real activations.
 * **✓ Facial Landmarks**: 5 canonical landmarks (eyes, nose, mouth corners) with sub-pixel localization, IPD, and symmetry metrics.
-* **✓ Blur Analysis**: Laplacian variance spatial frequency analysis and continuous blur scoring (`sharp`, `slightly_blurred`, `blurry`).
-* **✓ Brightness Analysis**: ITU-R BT.601 photopic luminance evaluation and exposure status (`too_dark`, `acceptable`, `too_bright`).
-* **✓ Contrast Analysis**: Standard deviation luminance dynamic range diagnostics (`low_contrast`, `acceptable`, `high_contrast`).
-* **✓ Face-Size Analysis**: Bounding box width, height, aspect ratio, area coverage ratio, and biometric sufficiency check.
-* **✓ Basic Pose Estimation**: Perspective-n-Point Euler rotation angles (Yaw, Pitch, Roll) and frontality score (degrades gracefully to `null` on degenerate geometry).
-* **✓ Face Quality Score**: Explainable, transparent 0–100 composite score combining sharpness, brightness, contrast, size, and landmarks with bottleneck gating.
-* **✓ Granular Latency Profiling**: Real measured latencies for detection, landmarks, quality, pose, and total analysis.
-* **✓ Typed Configuration & Privacy**: Environment settings validation, zero-secret exposure, and zero permanent biometric disk storage.
+* **✓ Face Quality Analysis**: Comprehensive composite quality scoring (0–100) combining Laplacian sharpness, photopic luminance, contrast, scale, and 3D head pose.
+* **✓ Video Face Detection**: Sequential frame-by-frame face localization across video files without memory accumulation.
+* **✓ Multi-Face Tracking**: Real-time ByteTrack multi-object tracking associating bounding boxes across time with Kalman motion forecasting.
+* **✓ Temporary Track IDs**: Strictly local, sequential track IDs per video session with zero cross-video persistence or biometric identification.
+* **✓ Video Processing Metrics**: Real measured telemetry including processing FPS, latency breakdowns, peak simultaneous faces, unique track count, and track lost events.
+* **✓ Annotated Video Output**: Production visualizer producing downloadable MP4 video files with HUD cards and landmark overlays.
+* **✓ Video Processing Job API**: Asynchronous job submission, progress tracking, output downloading, and job cancellation endpoints.
 
 #### ⚠️ What is NOT Implemented Yet
-* ❌ **Identity Recognition / Biometric Matching**: No facial embeddings extraction, identity database matching, or biometric identification (`face_id: null`).
-* ❌ **Multi-Frame Video Tracking**: No temporal trajectory tracking across video frames (e.g. ByteTrack, SORT) or persistent track IDs.
-* ❌ **Live Webcam Streaming WebSocket**: Real-time live webcam frame-by-frame streaming over WebSocket is not yet connected to the deep face detection model.
+* ❌ **Identity Recognition / Biometric Matching**: No facial embeddings extraction, identity database matching, or biometric identification.
+* ❌ **Live Webcam Streaming WebSocket**: Real-time live webcam frame-by-frame streaming over WebSocket is not yet connected.
 * ❌ **Liveness & Anti-Spoofing Detection**: No 2D/3D print attack, screen replay, or silicon mask anti-spoofing verification models.
 * ❌ **Final Production Dashboard**: The analytics UI dashboard is not built yet.
 
