@@ -12,6 +12,7 @@ Architecture:
                                             └── Quality Score
 """
 
+import time
 import logging
 from typing import List, Dict, Any, Optional, Tuple, Union
 import numpy as np
@@ -25,6 +26,7 @@ from app.schemas.ai import (
     DetectedFaceItem,
     FaceDetectionQuality,
     DetectedFacePose,
+    AnalysisPerformanceBreakdown,
 )
 from app.ai.detection.schemas import FaceDetection
 from app.ai.analysis.schemas import (
@@ -82,6 +84,7 @@ class FaceAnalysisService:
 
     def __init__(self, min_sharpness: float = 50.0):
         self.min_sharpness = min_sharpness
+        self.last_timing: Optional[AnalysisPerformanceBreakdown] = None
 
     # -------------------------------------------------------------------------
     # 1. Modular Sub-Component Analyzers
@@ -219,6 +222,7 @@ class FaceAnalysisService:
         image_rgb: np.ndarray,
         detection: FaceDetection,
         image_shape: Tuple[int, int],
+        stage_timing: Optional[Dict[str, float]] = None,
     ) -> DetectedFaceItem:
         """
         Processes a single raw face detection and returns a fully analyzed DetectedFaceItem.
@@ -228,9 +232,15 @@ class FaceAnalysisService:
         bbox = detection.bbox
 
         # 1. Landmarks
+        t_lm = time.perf_counter() if stage_timing is not None else 0.0
         lms_dict, lms_list = self.extract_and_validate_landmarks(detection.landmarks, image_shape)
+        if stage_timing is not None:
+            stage_timing["landmark"] += (time.perf_counter() - t_lm)
 
-        # 2. Extract safe face crop
+        # 2. Quality & Optics (Size, Blur, Brightness, Contrast, Quality Score, Visibility)
+        t_qual = time.perf_counter() if stage_timing is not None else 0.0
+
+        # Extract safe face crop
         x1_int = max(0, int(round(bbox.x1)))
         y1_int = max(0, int(round(bbox.y1)))
         x2_int = min(img_w, int(round(bbox.x2)))
@@ -241,20 +251,20 @@ class FaceAnalysisService:
             else np.empty((0, 0, 3), dtype=np.uint8)
         )
 
-        # 3. Size metrics
+        # Size metrics
         size_metrics = self.analyze_size(bbox, image_shape)
         face_area_ratio = round(size_metrics.face_area_ratio, 4)
 
-        # 4. Blur & sharpness
+        # Blur & sharpness
         blur_score, blur_status, clarity = self.analyze_blur(face_crop)
 
-        # 5. Brightness & exposure
+        # Brightness & exposure
         brightness_score, brightness_status, illum = self.analyze_brightness(face_crop)
 
-        # 6. Contrast & dynamic range
+        # Contrast & dynamic range
         contrast_score, contrast_status = self.analyze_contrast(illum)
 
-        # 7. Quality scoring & classification
+        # Quality scoring & classification
         q_score_100, q_classification, factors, grade = self.calculate_quality(
             face_crop=face_crop,
             bbox=bbox,
@@ -266,7 +276,7 @@ class FaceAnalysisService:
             detection_confidence=detection.confidence,
         )
 
-        # 8. Visibility assessment
+        # Visibility assessment
         vis_assessment = calculate_face_visibility(
             face_crop_rgb=face_crop,
             bbox=bbox,
@@ -297,9 +307,14 @@ class FaceAnalysisService:
             contrast=contrast_score,
             is_usable=q_score_100 >= 30.0,
         )
+        if stage_timing is not None:
+            stage_timing["quality"] += (time.perf_counter() - t_qual)
 
-        # 9. 3D Head pose
+        # 3. 3D Head pose
+        t_pose = time.perf_counter() if stage_timing is not None else 0.0
         pose_dict, _ = self.estimate_pose(lms_list, image_shape)
+        if stage_timing is not None:
+            stage_timing["pose"] += (time.perf_counter() - t_pose)
 
         return DetectedFaceItem(
             face_id=detection.face_id,
@@ -322,15 +337,25 @@ class FaceAnalysisService:
         image_rgb: np.ndarray,
         detections: List[FaceDetection],
         image_shape: Tuple[int, int],
+        detection_time_ms: float = 0.0,
     ) -> List[DetectedFaceItem]:
         """
         Analyzes a batch of detected faces across an image.
         Applies fault isolation so an anomaly in one face never crashes the batch.
+        Accurately measures landmark_time_ms, quality_analysis_time_ms, pose_time_ms,
+        and total_analysis_time_ms with high-resolution timers.
         """
+        start_total = time.perf_counter()
+        stage_timing = {"landmark": 0.0, "quality": 0.0, "pose": 0.0}
         results: List[DetectedFaceItem] = []
         for d in detections:
             try:
-                item = self.analyze_face_detection_item(image_rgb, d, image_shape)
+                item = self.analyze_face_detection_item(
+                    image_rgb=image_rgb,
+                    detection=d,
+                    image_shape=image_shape,
+                    stage_timing=stage_timing,
+                )
                 results.append(item)
             except Exception as exc:
                 logger.error("Error analyzing face detection %s: %s", getattr(d, "face_id", "unknown"), exc, exc_info=True)
@@ -370,7 +395,35 @@ class FaceAnalysisService:
                     results.append(fallback_item)
                 except Exception:
                     pass
+
+        total_analysis_time_ms = round((time.perf_counter() - start_total) * 1000.0, 2)
+        self.last_timing = AnalysisPerformanceBreakdown(
+            detection_time_ms=round(detection_time_ms, 2),
+            landmark_time_ms=round(stage_timing["landmark"] * 1000.0, 2),
+            quality_analysis_time_ms=round(stage_timing["quality"] * 1000.0, 2),
+            pose_time_ms=round(stage_timing["pose"] * 1000.0, 2),
+            total_analysis_time_ms=total_analysis_time_ms,
+        )
         return results
+
+    def analyze_detected_faces_with_timing(
+        self,
+        image_rgb: np.ndarray,
+        detections: List[FaceDetection],
+        image_shape: Tuple[int, int],
+        detection_time_ms: float = 0.0,
+    ) -> Tuple[List[DetectedFaceItem], AnalysisPerformanceBreakdown]:
+        """
+        Analyzes detected faces and explicitly returns the measured latency breakdown.
+        """
+        results = self.analyze_detected_faces(
+            image_rgb=image_rgb,
+            detections=detections,
+            image_shape=image_shape,
+            detection_time_ms=detection_time_ms,
+        )
+        timing = self.last_timing or AnalysisPerformanceBreakdown(detection_time_ms=detection_time_ms)
+        return results, timing
 
     # -------------------------------------------------------------------------
     # 3. Comprehensive Structured Face Analysis (for /analyze endpoint)
@@ -381,14 +434,48 @@ class FaceAnalysisService:
         image_rgb: np.ndarray,
         detections: List[FaceDetection],
         image_shape: Optional[Tuple[int, int]] = None,
+        detection_time_ms: float = 0.0,
     ) -> List[StructuredFaceAnalysis]:
         """
         Executes comprehensive structured analysis on detected faces, returning
         StructuredFaceAnalysis models conforming to the /api/v1/ai/analyze API endpoint.
+        Measures actual execution latencies across pipeline stages.
         """
+        start_total = time.perf_counter()
+        stage_timing = {"landmark": 0.0, "quality": 0.0, "pose": 0.0}
         from app.ai.analysis.quality import FaceAnalyzer
         analyzer = FaceAnalyzer(min_sharpness=self.min_sharpness)
-        return analyzer.analyze_detections(image_rgb, detections)
+        analyses = analyzer.analyze_detections(image_rgb, detections, stage_timing=stage_timing)
+        total_analysis_time_ms = round((time.perf_counter() - start_total) * 1000.0, 2)
+
+        self.last_timing = AnalysisPerformanceBreakdown(
+            detection_time_ms=round(detection_time_ms, 2),
+            landmark_time_ms=round(stage_timing["landmark"] * 1000.0, 2),
+            quality_analysis_time_ms=round(stage_timing["quality"] * 1000.0, 2),
+            pose_time_ms=round(stage_timing["pose"] * 1000.0, 2),
+            total_analysis_time_ms=total_analysis_time_ms,
+        )
+        return analyses
+
+    def analyze_structured_detections_with_timing(
+        self,
+        image_rgb: np.ndarray,
+        detections: List[FaceDetection],
+        image_shape: Optional[Tuple[int, int]] = None,
+        detection_time_ms: float = 0.0,
+    ) -> Tuple[List[StructuredFaceAnalysis], AnalysisPerformanceBreakdown]:
+        """
+        Executes comprehensive structured analysis on detected faces and explicitly
+        returns the measured latency breakdown.
+        """
+        analyses = self.analyze_structured_detections(
+            image_rgb=image_rgb,
+            detections=detections,
+            image_shape=image_shape,
+            detection_time_ms=detection_time_ms,
+        )
+        timing = self.last_timing or AnalysisPerformanceBreakdown(detection_time_ms=detection_time_ms)
+        return analyses, timing
 
 
 # Singleton instance and accessor provider

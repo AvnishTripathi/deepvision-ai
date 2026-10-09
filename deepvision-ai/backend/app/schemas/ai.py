@@ -307,6 +307,11 @@ class FrameInferenceResult(DetectionResponse):
     total_time_ms: float = Field(default=0.0, description="End-to-end processing latency (ms)")
     device_used: Optional[str] = Field(default=None, description="Device used alias")
     runtime_provider: str = Field(default="onnxruntime", description="Underlying runtime provider")
+    detection_time_ms: Optional[float] = Field(default=None, description="Face detection model inference latency (ms)")
+    landmark_time_ms: Optional[float] = Field(default=None, description="Facial landmark extraction latency (ms)")
+    quality_analysis_time_ms: Optional[float] = Field(default=None, description="Face quality analysis latency (ms)")
+    pose_time_ms: Optional[float] = Field(default=None, description="3D Head pose estimation latency (ms)")
+    total_analysis_time_ms: Optional[float] = Field(default=None, description="Total face analysis phase duration (ms)")
 
     @model_validator(mode="before")
     @classmethod
@@ -488,6 +493,30 @@ class PerformanceBreakdown(BaseModel):
     postprocessing_time_ms: float = Field(0.0, description="Postprocessing, NMS & box clipping latency (ms)")
     total_processing_time_ms: float = Field(0.0, description="Total end-to-end pipeline latency (ms)")
 
+    # Step 18 Granular Stage Telemetry
+    detection_time_ms: Optional[float] = Field(default=None, description="Face detection model inference latency (ms)")
+    landmark_time_ms: Optional[float] = Field(default=None, description="Facial landmark extraction & geometry validation latency (ms)")
+    quality_analysis_time_ms: Optional[float] = Field(default=None, description="Quality, clarity & illumination analysis latency (ms)")
+    pose_time_ms: Optional[float] = Field(default=None, description="3D Head pose estimation latency (ms)")
+    total_analysis_time_ms: Optional[float] = Field(default=None, description="Total face analysis phase latency (ms)")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
+class AnalysisPerformanceBreakdown(BaseModel):
+    """
+    Granular stage performance telemetry (Step 18).
+    Measures actual execution latencies in milliseconds across distinct pipeline stages.
+    Guarantees actual measured values — zero fabricated numbers.
+    """
+    detection_time_ms: float = Field(0.0, ge=0.0, description="Face detection model inference latency (ms)")
+    landmark_time_ms: float = Field(0.0, ge=0.0, description="Facial landmark extraction & geometry validation latency (ms)")
+    quality_analysis_time_ms: float = Field(0.0, ge=0.0, description="Quality, clarity & illumination analysis latency (ms)")
+    pose_time_ms: float = Field(0.0, ge=0.0, description="3D Head pose estimation latency (ms)")
+    total_analysis_time_ms: float = Field(0.0, ge=0.0, description="Total face analysis phase latency (ms)")
+
+    model_config = ConfigDict(populate_by_name=True)
+
 
 class AIDetectionResponse(BaseModel):
     """
@@ -511,6 +540,11 @@ class AIDetectionResponse(BaseModel):
     face_count: int = Field(0, description="Total number of detected faces")
     faces: List[DetectedFaceItem] = Field(default_factory=list, description="List of detected faces")
     timing: Optional[PerformanceBreakdown] = Field(default=None, description="Granular latency telemetry breakdown (ms)")
+    detection_time_ms: Optional[float] = Field(default=None, description="Face detection model inference latency (ms)")
+    landmark_time_ms: Optional[float] = Field(default=None, description="Facial landmark processing latency (ms)")
+    quality_analysis_time_ms: Optional[float] = Field(default=None, description="Quality analysis latency (ms)")
+    pose_time_ms: Optional[float] = Field(default=None, description="3D Head pose estimation latency (ms)")
+    total_analysis_time_ms: Optional[float] = Field(default=None, description="Total face analysis duration (ms)")
     request_id: Optional[str] = Field(default=None, description="Unique request trace identifier")
 
     model_config = ConfigDict(

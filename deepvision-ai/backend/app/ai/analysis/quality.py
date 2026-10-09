@@ -4,6 +4,7 @@ Combines sharpness, illumination, resolution, and 3D head pose into explainable 
 Maintains full backward compatibility with legacy FaceQualityScore callers.
 """
 
+import time
 from typing import Tuple, Optional, List, Union, Dict, Any
 import numpy as np
 import cv2
@@ -383,6 +384,7 @@ def analyze_face_comprehensive(
     landmarks: Optional[List[LandmarkPoint]] = None,
     face_id: Optional[Union[str, int]] = None,
     min_sharpness: float = 50.0,
+    stage_timing: Optional[Dict[str, float]] = None,
 ) -> StructuredFaceAnalysis:
     """
     Executes deep multi-dimensional face analytics:
@@ -396,7 +398,8 @@ def analyze_face_comprehensive(
     """
     img_h, img_w = image_shape
 
-    # Validate and clip input landmarks against image boundaries [0, width] and [0, height]
+    # 1. Landmark & Symmetry Metrics
+    t_lm = time.perf_counter() if stage_timing is not None else 0.0
     validated_landmarks: Optional[List[LandmarkPoint]] = None
     if landmarks:
         try:
@@ -409,7 +412,6 @@ def analyze_face_comprehensive(
             logger.warning("Failed validating landmark boundaries for face %s: %s", face_id, lm_val_exc)
             validated_landmarks = None
 
-    # 1. Landmark & Symmetry Metrics
     lm_metrics: Optional[FacialLandmarkMetrics] = None
     if validated_landmarks and len(validated_landmarks) >= 5:
         try:
@@ -418,9 +420,13 @@ def analyze_face_comprehensive(
             logger.warning("Failed computing landmark metrics for face %s: %s", face_id, lm_exc)
             lm_metrics = None
 
+    if stage_timing is not None:
+        stage_timing["landmark"] += (time.perf_counter() - t_lm)
+
     ipd = lm_metrics.interpupillary_distance_px if lm_metrics else None
 
     # 2. 3D Head Pose & Orientation
+    t_pose = time.perf_counter() if stage_timing is not None else 0.0
     pose: Optional[HeadPoseEstimation] = None
     if validated_landmarks and len(validated_landmarks) >= 5:
         try:
@@ -429,16 +435,16 @@ def analyze_face_comprehensive(
             logger.warning("Failed estimating head pose for face %s: %s", face_id, pose_exc)
             pose = None
 
-    # 3. Size & Scale Metrics
+    if stage_timing is not None:
+        stage_timing["pose"] += (time.perf_counter() - t_pose)
+
+    # 3. Quality, Clarity & Illumination Analytics
+    t_qual = time.perf_counter() if stage_timing is not None else 0.0
     size = compute_face_size_metrics(bbox, image_shape, ipd=ipd)
-
-    # 4. Clarity & Blur Metrics
     clarity = compute_clarity_metrics(face_crop_rgb, min_sharpness_threshold=min_sharpness)
-
-    # 5. Illumination & Exposure Metrics
     illum = compute_illumination_metrics(face_crop_rgb)
 
-    # 6. Composite Transparent Quality Scoring (0 - 100) (Step 11)
+    # 4. Composite Transparent Quality Scoring (0 - 100) (Step 11)
     quality_score_100, quality_factors, grade = calculate_face_quality_score(
         face_crop_rgb=face_crop_rgb,
         bbox=bbox,
@@ -461,7 +467,7 @@ def analyze_face_comprehensive(
         (pose.frontality_score >= 0.40 if pose else True)
     )
 
-    # 7. Face Visibility Assessment (Step 10)
+    # 5. Face Visibility Assessment (Step 10)
     visibility_assessment = calculate_face_visibility(
         face_crop_rgb=face_crop_rgb,
         bbox=bbox,
@@ -473,7 +479,7 @@ def analyze_face_comprehensive(
         detection_confidence=confidence,
     )
 
-    # 8. Face Quality Classification (Step 13)
+    # 6. Face Quality Classification (Step 13)
     classification = classify_face_quality(quality_score_100)
 
     quality_score = ComprehensiveFaceQuality(
@@ -493,6 +499,8 @@ def analyze_face_comprehensive(
         size=size,
         pose=pose,
     )
+    if stage_timing is not None:
+        stage_timing["quality"] += (time.perf_counter() - t_qual)
 
     return StructuredFaceAnalysis(
         face_id=face_id,
@@ -528,6 +536,7 @@ class FaceAnalyzer:
         self,
         image_rgb: np.ndarray,
         detections: List[Any],
+        stage_timing: Optional[Dict[str, float]] = None,
     ) -> List[StructuredFaceAnalysis]:
         """
         Analyzes a list of FaceDetection items on the input RGB image.
@@ -556,6 +565,7 @@ class FaceAnalyzer:
                     landmarks=d.landmarks,
                     face_id=d.face_id,
                     min_sharpness=self.min_sharpness,
+                    stage_timing=stage_timing,
                 )
                 analyses.append(analysis)
             except Exception as exc:

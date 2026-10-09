@@ -29,6 +29,7 @@ from app.schemas.ai import (
     InternalInferenceErrorResponse,
     ImageDimensions,
     PerformanceBreakdown,
+    AnalysisPerformanceBreakdown,
 )
 from app.ai.analysis.schemas import AIAnalysisResponse
 from app.services.ai_service import AIService, get_ai_service
@@ -222,12 +223,22 @@ async def detect_faces(
             model_name=settings.AI_MODEL_NAME,
         )
 
-    # 7. Granular Performance Breakdown Telemetry (Step 3, Task 12)
+    # 7. Granular Performance Breakdown Telemetry (Step 3, Task 12 & Step 18)
+    det_time_val = (
+        detection_result.detection_time_ms
+        if detection_result.detection_time_ms is not None
+        else round(detection_result.inference_time_ms, 2)
+    )
     timing_breakdown = PerformanceBreakdown(
         preprocessing_time_ms=round(detection_result.preprocessing_time_ms, 2),
         inference_time_ms=round(detection_result.inference_time_ms, 2),
         postprocessing_time_ms=round(detection_result.postprocessing_time_ms, 2),
         total_processing_time_ms=round(detection_result.total_processing_time_ms, 2),
+        detection_time_ms=det_time_val,
+        landmark_time_ms=detection_result.landmark_time_ms,
+        quality_analysis_time_ms=detection_result.quality_analysis_time_ms,
+        pose_time_ms=detection_result.pose_time_ms,
+        total_analysis_time_ms=detection_result.total_analysis_time_ms,
     )
 
     # Structured Telemetry Logging (Guaranteed zero image content logged)
@@ -252,6 +263,11 @@ async def detect_faces(
         face_count=len(face_items),
         faces=face_items,
         timing=timing_breakdown,
+        detection_time_ms=det_time_val,
+        landmark_time_ms=detection_result.landmark_time_ms,
+        quality_analysis_time_ms=detection_result.quality_analysis_time_ms,
+        pose_time_ms=detection_result.pose_time_ms,
+        total_analysis_time_ms=detection_result.total_analysis_time_ms,
         request_id=request_id,
     )
 
@@ -402,6 +418,20 @@ async def analyze_image(
         request_id=request_id,
     )
 
+    # 5. Build Granular Stage Performance Telemetry (Step 18)
+    det_time_val = (
+        detection_result.detection_time_ms
+        if detection_result.detection_time_ms is not None
+        else round(detection_result.inference_time_ms, 2)
+    )
+    analysis_timing = AnalysisPerformanceBreakdown(
+        detection_time_ms=det_time_val or 0.0,
+        landmark_time_ms=detection_result.landmark_time_ms or 0.0,
+        quality_analysis_time_ms=detection_result.quality_analysis_time_ms or 0.0,
+        pose_time_ms=detection_result.pose_time_ms or 0.0,
+        total_analysis_time_ms=detection_result.total_analysis_time_ms or 0.0,
+    )
+
     return AIAnalysisResponse(
         success=True,
         model=detection_result.model_name or settings.AI_MODEL_NAME,
@@ -411,6 +441,12 @@ async def analyze_image(
         processing_time_ms=round(detection_result.processing_time_ms, 2),
         face_count=len(analyses),
         faces=analyses,
+        timing=analysis_timing,
+        detection_time_ms=analysis_timing.detection_time_ms,
+        landmark_time_ms=analysis_timing.landmark_time_ms,
+        quality_analysis_time_ms=analysis_timing.quality_analysis_time_ms,
+        pose_time_ms=analysis_timing.pose_time_ms,
+        total_analysis_time_ms=analysis_timing.total_analysis_time_ms,
         request_id=request_id,
     )
 

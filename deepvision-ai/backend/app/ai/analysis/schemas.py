@@ -14,6 +14,7 @@ from app.schemas.ai import (
     NormalizedBoundingBox,
     LandmarkPoint,
     LandmarkCoordinate,
+    AnalysisPerformanceBreakdown,
 )
 
 
@@ -536,6 +537,12 @@ class AIAnalysisResponse(BaseModel):
     processing_time_ms: float = Field(..., description="Total pipeline latency in milliseconds")
     face_count: int = Field(0, description="Total number of analyzed faces")
     faces: List[StructuredFaceAnalysis] = Field(default_factory=list, description="List of structured face analyses")
+    timing: Optional[AnalysisPerformanceBreakdown] = Field(default=None, description="Granular latency telemetry breakdown (ms)")
+    detection_time_ms: Optional[float] = Field(default=None, description="Face detection model inference latency (ms)")
+    landmark_time_ms: Optional[float] = Field(default=None, description="Facial landmark processing latency (ms)")
+    quality_analysis_time_ms: Optional[float] = Field(default=None, description="Face quality analysis latency (ms)")
+    pose_time_ms: Optional[float] = Field(default=None, description="3D Head pose estimation latency (ms)")
+    total_analysis_time_ms: Optional[float] = Field(default=None, description="Total face analysis duration (ms)")
     request_id: Optional[str] = Field(default=None, description="Unique request trace identifier")
 
     model_config = ConfigDict(populate_by_name=True)

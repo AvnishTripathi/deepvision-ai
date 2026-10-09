@@ -158,12 +158,27 @@ class AIService:
         canvas_h = detection_result.image_height or orig_h
         canvas_w = detection_result.image_width or orig_w
 
+        det_time_ms = round(
+            detection_result.inference_time_ms
+            if (detection_result.inference_time_ms is not None and detection_result.inference_time_ms > 0.0)
+            else (detection_result.total_time_ms or detection_result.processing_time_ms or 0.0),
+            2
+        )
+
         # 4. Analyze detected faces via dedicated FaceAnalysisService
-        face_items = self._analysis_service.analyze_detected_faces(
+        face_items, timing_breakdown = self._analysis_service.analyze_detected_faces_with_timing(
             image_rgb=image_rgb,
             detections=detection_result.detections,
             image_shape=(canvas_h, canvas_w),
+            detection_time_ms=det_time_ms,
         )
+
+        # Attach measured stage metrics (Step 18)
+        detection_result.detection_time_ms = timing_breakdown.detection_time_ms
+        detection_result.landmark_time_ms = timing_breakdown.landmark_time_ms
+        detection_result.quality_analysis_time_ms = timing_breakdown.quality_analysis_time_ms
+        detection_result.pose_time_ms = timing_breakdown.pose_time_ms
+        detection_result.total_analysis_time_ms = timing_breakdown.total_analysis_time_ms
 
         return face_items, detection_result
 
@@ -200,12 +215,27 @@ class AIService:
         canvas_h = detection_result.image_height or orig_h
         canvas_w = detection_result.image_width or orig_w
 
+        det_time_ms = round(
+            detection_result.inference_time_ms
+            if (detection_result.inference_time_ms is not None and detection_result.inference_time_ms > 0.0)
+            else (detection_result.total_time_ms or detection_result.processing_time_ms or 0.0),
+            2
+        )
+
         # 4. Perform comprehensive structured face analysis via FaceAnalysisService
-        analyses = self._analysis_service.analyze_structured_detections(
+        analyses, timing_breakdown = self._analysis_service.analyze_structured_detections_with_timing(
             image_rgb=image_rgb,
             detections=detection_result.detections,
             image_shape=(canvas_h, canvas_w),
+            detection_time_ms=det_time_ms,
         )
+
+        # Attach measured stage metrics (Step 18)
+        detection_result.detection_time_ms = timing_breakdown.detection_time_ms
+        detection_result.landmark_time_ms = timing_breakdown.landmark_time_ms
+        detection_result.quality_analysis_time_ms = timing_breakdown.quality_analysis_time_ms
+        detection_result.pose_time_ms = timing_breakdown.pose_time_ms
+        detection_result.total_analysis_time_ms = timing_breakdown.total_analysis_time_ms
 
         return analyses, detection_result
 
