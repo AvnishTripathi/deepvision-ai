@@ -17,7 +17,7 @@ from app.ai.detection.detector import FaceDetector
 from app.ai.detection.schemas import DetectionResponse, FrameInferenceResult
 from app.ai.inference.device import get_device_telemetry
 from app.services.face_analysis_service import FaceAnalysisService
-from app.schemas.ai import DetectedFaceItem
+from app.schemas.ai import DetectedFaceItem, FaceBoundingBox, AnalysisPerformanceBreakdown
 
 logger = logging.getLogger("deepvision.service.ai")
 
@@ -165,13 +165,35 @@ class AIService:
             2
         )
 
-        # 4. Analyze detected faces via dedicated FaceAnalysisService
-        face_items, timing_breakdown = self._analysis_service.analyze_detected_faces_with_timing(
-            image_rgb=image_rgb,
-            detections=detection_result.detections,
-            image_shape=(canvas_h, canvas_w),
-            detection_time_ms=det_time_ms,
-        )
+        # 4. Analyze detected faces via dedicated FaceAnalysisService with fault isolation
+        try:
+            face_items, timing_breakdown = self._analysis_service.analyze_detected_faces_with_timing(
+                image_rgb=image_rgb,
+                detections=detection_result.detections,
+                image_shape=(canvas_h, canvas_w),
+                detection_time_ms=det_time_ms,
+            )
+        except Exception as exc:
+            logger.error("Analysis service failed in detect_and_analyze_faces: %s", exc, exc_info=True)
+            face_items = [
+                DetectedFaceItem(
+                    face_id=getattr(d, "face_id", None),
+                    bbox=FaceBoundingBox(
+                        x1=round(d.bbox.x1, 2),
+                        y1=round(d.bbox.y1, 2),
+                        x2=round(d.bbox.x2, 2),
+                        y2=round(d.bbox.y2, 2),
+                    ),
+                    confidence=round(float(d.confidence), 4),
+                    landmarks=None,
+                    landmarks_list=None,
+                    landmarks_dict=None,
+                    quality=None,
+                    pose=None,
+                )
+                for d in detection_result.detections
+            ]
+            timing_breakdown = AnalysisPerformanceBreakdown(detection_time_ms=det_time_ms)
 
         # Attach measured stage metrics (Step 18)
         detection_result.detection_time_ms = timing_breakdown.detection_time_ms
@@ -222,13 +244,20 @@ class AIService:
             2
         )
 
-        # 4. Perform comprehensive structured face analysis via FaceAnalysisService
-        analyses, timing_breakdown = self._analysis_service.analyze_structured_detections_with_timing(
-            image_rgb=image_rgb,
-            detections=detection_result.detections,
-            image_shape=(canvas_h, canvas_w),
-            detection_time_ms=det_time_ms,
-        )
+        # 4. Perform comprehensive structured face analysis via FaceAnalysisService with fault isolation
+        try:
+            analyses, timing_breakdown = self._analysis_service.analyze_structured_detections_with_timing(
+                image_rgb=image_rgb,
+                detections=detection_result.detections,
+                image_shape=(canvas_h, canvas_w),
+                detection_time_ms=det_time_ms,
+            )
+        except Exception as exc:
+            logger.error("Analysis service failed in analyze_faces: %s", exc, exc_info=True)
+            from app.ai.analysis.quality import FaceAnalyzer
+            analyzer = FaceAnalyzer()
+            analyses = analyzer.analyze_detections(image_rgb, detection_result.detections)
+            timing_breakdown = AnalysisPerformanceBreakdown(detection_time_ms=det_time_ms)
 
         # Attach measured stage metrics (Step 18)
         detection_result.detection_time_ms = timing_breakdown.detection_time_ms

@@ -37,7 +37,7 @@ from app.ai.analysis.landmarks import (
     compute_landmark_metrics,
     validate_and_clip_landmarks_list,
 )
-from app.ai.analysis.pose import estimate_head_pose
+from app.ai.analysis.pose import estimate_head_pose, get_pose_estimation_status
 from app.ai.analysis.metrics import (
     compute_face_size_metrics,
     compute_clarity_metrics,
@@ -444,7 +444,9 @@ def analyze_face_comprehensive(
     pose: Optional[HeadPoseEstimation] = None
     if eff_enable_pose and eff_enable_landmarks and validated_landmarks and len(validated_landmarks) >= 5:
         try:
-            pose = estimate_head_pose(validated_landmarks, image_shape)
+            pose, failure_reason = get_pose_estimation_status(validated_landmarks, image_shape)
+            if pose is None and failure_reason:
+                logger.debug("Head pose estimation unavailable for face %s: %s", face_id, failure_reason)
         except Exception as pose_exc:
             logger.warning("Failed estimating head pose for face %s: %s", face_id, pose_exc)
             pose = None
@@ -454,22 +456,52 @@ def analyze_face_comprehensive(
 
     # 3. Quality, Clarity & Illumination Analytics
     t_qual = time.perf_counter() if stage_timing is not None else 0.0
-    size = compute_face_size_metrics(bbox, image_shape, ipd=ipd)
-    clarity = compute_clarity_metrics(face_crop_rgb, min_sharpness_threshold=eff_min_sharpness)
-    illum = compute_illumination_metrics(face_crop_rgb, min_acceptable=eff_b_min, max_acceptable=eff_b_max)
+    try:
+        size = compute_face_size_metrics(bbox, image_shape, ipd=ipd)
+    except Exception as sz_exc:
+        logger.warning("Failed computing size metrics for face %s: %s", face_id, sz_exc)
+        size = compute_face_size_metrics(bbox, (max(1, img_h), max(1, img_w)))
+
+    try:
+        clarity = compute_clarity_metrics(face_crop_rgb, min_sharpness_threshold=eff_min_sharpness)
+    except Exception as cl_exc:
+        logger.warning("Failed computing clarity metrics for face %s: %s", face_id, cl_exc)
+        clarity = ClarityMetrics(
+            sharpness=0.0,
+            blur_score=0.0,
+            blur_status=BlurStatus.BLURRY,
+        )
+
+    try:
+        illum = compute_illumination_metrics(face_crop_rgb, min_acceptable=eff_b_min, max_acceptable=eff_b_max)
+    except Exception as il_exc:
+        logger.warning("Failed computing illumination metrics for face %s: %s", face_id, il_exc)
+        illum = IlluminationMetrics(
+            brightness=0.0,
+            contrast=0.0,
+            brightness_score=0.0,
+            brightness_status=BrightnessStatus.TOO_DARK,
+        )
 
     # 4. Composite Transparent Quality Scoring (0 - 100) (Step 11)
-    quality_score_100, quality_factors, grade = calculate_face_quality_score(
-        face_crop_rgb=face_crop_rgb,
-        bbox=bbox,
-        image_shape=image_shape,
-        clarity_metrics=clarity,
-        illumination_metrics=illum,
-        size_metrics=size,
-        landmark_metrics=lm_metrics,
-        landmarks=validated_landmarks,
-        detection_confidence=confidence,
-    )
+    try:
+        quality_score_100, quality_factors, grade = calculate_face_quality_score(
+            face_crop_rgb=face_crop_rgb,
+            bbox=bbox,
+            image_shape=image_shape,
+            clarity_metrics=clarity,
+            illumination_metrics=illum,
+            size_metrics=size,
+            landmark_metrics=lm_metrics,
+            landmarks=validated_landmarks,
+            detection_confidence=confidence,
+        )
+    except Exception as q_exc:
+        logger.warning("Failed calculating face quality score for face %s: %s", face_id, q_exc)
+        quality_score_100 = 0.0
+        quality_factors = FaceQualityFactors(sharpness=0.0, brightness=0.0, contrast=0.0, size=0.0, landmark=0.0)
+        grade = QualityGrade.UNUSABLE
+
     overall_quality = round(quality_score_100 / 100.0, 3)
 
     # Usability determination
@@ -483,19 +515,35 @@ def analyze_face_comprehensive(
     )
 
     # 5. Face Visibility Assessment (Step 10)
-    visibility_assessment = calculate_face_visibility(
-        face_crop_rgb=face_crop_rgb,
-        bbox=bbox,
-        image_shape=image_shape,
-        size_metrics=size,
-        clarity_metrics=clarity,
-        illumination_metrics=illum,
-        landmarks=validated_landmarks,
-        detection_confidence=confidence,
-    )
+    try:
+        visibility_assessment = calculate_face_visibility(
+            face_crop_rgb=face_crop_rgb,
+            bbox=bbox,
+            image_shape=image_shape,
+            size_metrics=size,
+            clarity_metrics=clarity,
+            illumination_metrics=illum,
+            landmarks=validated_landmarks,
+            detection_confidence=confidence,
+        )
+    except Exception as vis_exc:
+        logger.warning("Failed calculating visibility assessment for face %s: %s", face_id, vis_exc)
+        visibility_assessment = FaceVisibilityAssessment(
+            visibility=FaceVisibility.POOR,
+            visibility_score=0.0,
+            size_factor=0.0,
+            blur_factor=0.0,
+            brightness_factor=0.0,
+            landmark_availability_factor=0.0,
+            landmark_confidence_factor=0.0,
+            details="Visibility evaluation failed",
+        )
 
     # 6. Face Quality Classification (Step 13)
-    classification = classify_face_quality(quality_score_100, acceptable_threshold=eff_q_thresh)
+    try:
+        classification = classify_face_quality(quality_score_100, acceptable_threshold=eff_q_thresh)
+    except Exception:
+        classification = QualityClassification.POOR
 
     quality_score = ComprehensiveFaceQuality(
         quality_score=quality_score_100,

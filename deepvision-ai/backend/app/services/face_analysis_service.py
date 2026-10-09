@@ -196,8 +196,10 @@ class FaceAnalysisService:
         if not landmarks_list or len(landmarks_list) < 5:
             return None, None
 
-        pose_obj = estimate_head_pose(landmarks_list, image_shape)
+        pose_obj, failure_reason = get_pose_estimation_status(landmarks_list, image_shape)
         if pose_obj is None:
+            if failure_reason:
+                logger.debug("Head pose estimation unavailable: %s", failure_reason)
             return None, None
 
         angles_dict = pose_obj.to_angles_dict()
@@ -250,95 +252,144 @@ class FaceAnalysisService:
         img_h, img_w = image_shape
         bbox = detection.bbox
 
-        # 1. Landmarks
+        face_id = getattr(detection, "face_id", None)
+
+        # 1. Landmarks (Handle missing landmarks or extraction failure)
         lms_dict: Dict[str, LandmarkCoordinate] = {}
         lms_list: List[LandmarkPoint] = []
-        if self.enable_landmarks:
+        if self.enable_landmarks and getattr(detection, "landmarks", None):
             t_lm = time.perf_counter() if stage_timing is not None else 0.0
-            lms_dict, lms_list = self.extract_and_validate_landmarks(detection.landmarks, image_shape)
+            try:
+                lms_dict, lms_list = self.extract_and_validate_landmarks(detection.landmarks, image_shape)
+            except Exception as lm_exc:
+                logger.warning("Landmark extraction/validation failed for face %s: %s", face_id, lm_exc)
+                lms_dict, lms_list = {}, []
             if stage_timing is not None:
                 stage_timing["landmark"] += (time.perf_counter() - t_lm)
 
-        # 2. Quality & Optics (Size, Blur, Brightness, Contrast, Quality Score, Visibility)
+        # 2. Quality & Optics (Handle invalid face crop, blur/brightness/quality failure)
         quality_obj = None
         if self.enable_quality_analysis:
             t_qual = time.perf_counter() if stage_timing is not None else 0.0
 
-            # Extract safe face crop
-            x1_int = max(0, int(round(bbox.x1)))
-            y1_int = max(0, int(round(bbox.y1)))
-            x2_int = min(img_w, int(round(bbox.x2)))
-            y2_int = min(img_h, int(round(bbox.y2)))
-            face_crop = (
-                image_rgb[y1_int:y2_int, x1_int:x2_int]
-                if x2_int > x1_int and y2_int > y1_int
-                else np.empty((0, 0, 3), dtype=np.uint8)
-            )
+            # Safe face crop extraction
+            try:
+                x1_int = max(0, int(round(bbox.x1)))
+                y1_int = max(0, int(round(bbox.y1)))
+                x2_int = min(img_w, int(round(bbox.x2)))
+                y2_int = min(img_h, int(round(bbox.y2)))
+                face_crop = (
+                    image_rgb[y1_int:y2_int, x1_int:x2_int]
+                    if x2_int > x1_int and y2_int > y1_int
+                    else np.empty((0, 0, 3), dtype=np.uint8)
+                )
+            except Exception as crop_exc:
+                logger.warning("Face crop extraction failed for face %s: %s", face_id, crop_exc)
+                face_crop = np.empty((0, 0, 3), dtype=np.uint8)
 
             # Size metrics
-            size_metrics = self.analyze_size(bbox, image_shape)
-            face_area_ratio = round(size_metrics.face_area_ratio, 4)
+            try:
+                size_metrics = self.analyze_size(bbox, image_shape)
+                face_area_ratio = round(size_metrics.face_area_ratio, 4)
+            except Exception as sz_exc:
+                logger.warning("Size analysis failed for face %s: %s", face_id, sz_exc)
+                size_metrics = None
+                face_area_ratio = 0.0
 
             # Blur & sharpness
-            blur_score, blur_status, clarity = self.analyze_blur(face_crop)
+            clarity = None
+            try:
+                blur_score, blur_status, clarity = self.analyze_blur(face_crop)
+            except Exception as blur_exc:
+                logger.warning("Blur analysis failed for face %s: %s", face_id, blur_exc)
+                blur_score, blur_status = 0.0, "unknown"
 
             # Brightness & exposure
-            brightness_score, brightness_status, illum = self.analyze_brightness(face_crop)
+            illum = None
+            try:
+                brightness_score, brightness_status, illum = self.analyze_brightness(face_crop)
+            except Exception as br_exc:
+                logger.warning("Brightness analysis failed for face %s: %s", face_id, br_exc)
+                brightness_score, brightness_status = 0.0, "unknown"
 
             # Contrast & dynamic range
-            contrast_score, contrast_status = self.analyze_contrast(illum)
+            try:
+                if illum is not None:
+                    contrast_score, contrast_status = self.analyze_contrast(illum)
+                else:
+                    contrast_score, contrast_status = 0.0, "unknown"
+            except Exception as ct_exc:
+                logger.warning("Contrast analysis failed for face %s: %s", face_id, ct_exc)
+                contrast_score, contrast_status = 0.0, "unknown"
 
             # Quality scoring & classification
-            q_score_100, q_classification, factors, grade = self.calculate_quality(
-                face_crop=face_crop,
-                bbox=bbox,
-                image_shape=image_shape,
-                clarity_metrics=clarity,
-                illumination_metrics=illum,
-                size_metrics=size_metrics,
-                landmarks_list=lms_list,
-                detection_confidence=detection.confidence,
-            )
+            try:
+                q_score_100, q_classification, factors, grade = self.calculate_quality(
+                    face_crop=face_crop,
+                    bbox=bbox,
+                    image_shape=image_shape,
+                    clarity_metrics=clarity,
+                    illumination_metrics=illum,
+                    size_metrics=size_metrics,
+                    landmarks_list=lms_list,
+                    detection_confidence=detection.confidence,
+                )
+            except Exception as q_exc:
+                logger.warning("Quality score calculation failed for face %s: %s", face_id, q_exc)
+                q_score_100, q_classification = 0.0, "poor"
 
             # Visibility assessment
-            vis_assessment = calculate_face_visibility(
-                face_crop_rgb=face_crop,
-                bbox=bbox,
-                image_shape=image_shape,
-                size_metrics=size_metrics,
-                clarity_metrics=clarity,
-                illumination_metrics=illum,
-                landmarks=lms_list,
-                detection_confidence=detection.confidence,
-            )
-            visibility_val = vis_assessment.visibility.value
+            try:
+                vis_assessment = calculate_face_visibility(
+                    face_crop_rgb=face_crop,
+                    bbox=bbox,
+                    image_shape=image_shape,
+                    size_metrics=size_metrics,
+                    clarity_metrics=clarity,
+                    illumination_metrics=illum,
+                    landmarks=lms_list,
+                    detection_confidence=detection.confidence,
+                )
+                visibility_val = vis_assessment.visibility.value
+            except Exception as vis_exc:
+                logger.warning("Visibility assessment failed for face %s: %s", face_id, vis_exc)
+                visibility_val = "poor"
 
             # Build FaceDetectionQuality with configurable quality threshold
-            quality_obj = FaceDetectionQuality(
-                score=round(q_score_100, 1),
-                classification=q_classification,
-                blur_score=blur_score,
-                blur_status=blur_status,
-                brightness_score=brightness_score,
-                brightness_status=brightness_status,
-                contrast_score=contrast_score,
-                contrast_status=contrast_status,
-                face_area_ratio=face_area_ratio,
-                visibility=visibility_val,
-                overall_quality=round(q_score_100 / 100.0, 3),
-                sharpness=blur_score,
-                brightness=brightness_score,
-                contrast=contrast_score,
-                is_usable=q_score_100 >= self.quality_threshold,
-            )
+            try:
+                quality_obj = FaceDetectionQuality(
+                    score=round(q_score_100, 1),
+                    classification=q_classification,
+                    blur_score=blur_score,
+                    blur_status=blur_status,
+                    brightness_score=brightness_score,
+                    brightness_status=brightness_status,
+                    contrast_score=contrast_score,
+                    contrast_status=contrast_status,
+                    face_area_ratio=face_area_ratio,
+                    visibility=visibility_val,
+                    overall_quality=round(q_score_100 / 100.0, 3),
+                    sharpness=blur_score,
+                    brightness=brightness_score,
+                    contrast=contrast_score,
+                    is_usable=q_score_100 >= self.quality_threshold,
+                )
+            except Exception as build_exc:
+                logger.warning("Failed building quality object for face %s: %s", face_id, build_exc)
+                quality_obj = None
+
             if stage_timing is not None:
                 stage_timing["quality"] += (time.perf_counter() - t_qual)
 
-        # 3. 3D Head pose
+        # 3. 3D Head pose (Gracefully unavailable if landmarks missing or solvePnP fails)
         pose_dict = None
         if self.enable_pose_analysis and self.enable_landmarks and lms_list:
             t_pose = time.perf_counter() if stage_timing is not None else 0.0
-            pose_dict, _ = self.estimate_pose(lms_list, image_shape)
+            try:
+                pose_dict, _ = self.estimate_pose(lms_list, image_shape)
+            except Exception as pose_exc:
+                logger.warning("Pose estimation failed for face %s: %s", face_id, pose_exc)
+                pose_dict = None
             if stage_timing is not None:
                 stage_timing["pose"] += (time.perf_counter() - t_pose)
 
