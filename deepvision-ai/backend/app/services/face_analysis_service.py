@@ -401,3 +401,4 @@ def get_face_analysis_service() -> FaceAnalysisService:
     if _face_analysis_service_instance is None:
         _face_analysis_service_instance = FaceAnalysisService()
     return _face_analysis_service_instance
+

@@ -499,3 +499,144 @@ async def test_detect_endpoint_extended_response_structure_step14(valid_jpeg_byt
         app.dependency_overrides.clear()
 
 
+# -------------------------------------------------------------------------
+# Test 12: Dedicated Endpoint POST /api/v1/ai/analyze (Step 16)
+# -------------------------------------------------------------------------
+
+@pytest.mark.anyio
+async def test_analyze_endpoint_returns_503_when_model_not_configured(valid_jpeg_bytes):
+    """
+    Verify POST /api/v1/ai/analyze returns HTTP 503 when detector is not operational.
+    Guarantees no fake detections or fabricated analysis.
+    """
+    unconfigured_detector = MagicMock(spec=BaseFaceDetector)
+    unconfigured_detector.is_loaded = False
+    unconfigured_service = AIService(detector=unconfigured_detector)
+    app.dependency_overrides[get_ai_service] = lambda: unconfigured_service
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            files = {"file": ("test.jpg", valid_jpeg_bytes, "image/jpeg")}
+            response = await client.post("/api/v1/ai/analyze", files=files)
+
+            assert response.status_code == 503
+            data = response.json()
+            assert data["success"] is False
+            assert "not operational" in data["message"].lower()
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.anyio
+async def test_analyze_endpoint_comprehensive_face_analysis_step16(valid_jpeg_bytes):
+    """
+    Verify POST /api/v1/ai/analyze executes:
+    - Face detection (bounding boxes & confidence)
+    - Facial landmarks (validation, coordinates & geometry metrics)
+    - Quality analysis (0-100 quality score, factors, blur, brightness, contrast, size, visibility)
+    - 3D Head pose estimation (yaw, pitch, roll, frontality score, pose category)
+    Reuses the AI service without duplicating detector implementation.
+    """
+    mock_detector = MagicMock(spec=BaseFaceDetector)
+    mock_detector.is_loaded = True
+    mock_detector.detect.return_value = FrameInferenceResult(
+        image_width=640,
+        image_height=480,
+        processing_time_ms=28.5,
+        device="cpu",
+        model_name="yunet_v1",
+        detections=[
+            FaceDetection(
+                face_id=101,
+                bbox=BoundingBox(x1=150.0, y1=100.0, x2=350.0, y2=300.0),
+                confidence=0.985,
+                landmarks=[
+                    {"name": "right_eye", "x": 200.0, "y": 160.0},
+                    {"name": "left_eye", "x": 300.0, "y": 160.0},
+                    {"name": "nose", "x": 250.0, "y": 210.0},
+                    {"name": "right_mouth", "x": 210.0, "y": 260.0},
+                    {"name": "left_mouth", "x": 290.0, "y": 260.0},
+                ],
+            )
+        ],
+    )
+
+    operational_service = AIService(detector=mock_detector)
+    app.dependency_overrides[get_ai_service] = lambda: operational_service
+
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            files = {"file": ("face.jpg", valid_jpeg_bytes, "image/jpeg")}
+            response = await client.post(
+                "/api/v1/ai/analyze",
+                files=files,
+                params={"confidence_threshold": 0.6, "min_sharpness": 50.0},
+            )
+
+            assert response.status_code == 200
+            data = response.json()
+
+            # 1. Top-Level Metadata
+            assert data["success"] is True
+            assert data["model"] == "yunet_v1"
+            assert data["device"] == "CPU"
+            assert data["image_width"] == 640
+            assert data["image_height"] == 480
+            assert isinstance(data["processing_time_ms"], float)
+            assert data["face_count"] == 1
+            assert len(data["faces"]) == 1
+
+            face = data["faces"][0]
+
+            # 2. Detection Properties
+            assert face["face_id"] == 101
+            assert face["confidence"] == 0.985
+            assert face["bbox"]["x1"] == 150.0
+            assert face["bbox"]["y1"] == 100.0
+            assert face["bbox"]["x2"] == 350.0
+            assert face["bbox"]["y2"] == 300.0
+
+            # 3. Facial Landmarks (Dict & Metrics)
+            assert isinstance(face["landmarks"], dict)
+            assert "right_eye" in face["landmarks"]
+            assert "left_eye" in face["landmarks"]
+            assert "nose" in face["landmarks"]
+            if face.get("landmark_metrics"):
+                assert "interpupillary_distance_px" in face["landmark_metrics"]
+
+            # 4. Quality Analysis (Score, factors, status, usability)
+            assert 0.0 <= face["quality_score"] <= 100.0
+            assert face["classification"] in ("excellent", "good", "acceptable", "poor")
+            quality = face["quality"]
+            assert "quality_score" in quality
+            assert "classification" in quality
+            assert "sharpness" in quality
+            assert "brightness" in quality
+            assert "contrast" in quality
+            assert "is_usable" in quality
+
+            # 5. Pose Analysis (Yaw, pitch, roll, frontality)
+            pose = face["pose"]
+            assert pose is not None
+            assert "yaw" in pose
+            assert "pitch" in pose
+            assert "roll" in pose
+            assert isinstance(pose["yaw"], float)
+            assert isinstance(pose["pitch"], float)
+            assert isinstance(pose["roll"], float)
+            assert "frontality_score" in pose
+            assert "pose_category" in pose
+
+            # 6. Physical Dimensions & Clarity Breakdowns
+            assert "size" in face
+            assert face["size"]["face_width"] == 200.0
+            assert face["size"]["face_height"] == 200.0
+            assert "clarity" in face
+            assert "illumination" in face
+    finally:
+        app.dependency_overrides.clear()
+
+
+
