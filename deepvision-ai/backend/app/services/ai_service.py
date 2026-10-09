@@ -6,7 +6,8 @@ Maintains strict architectural separation: API -> AI Service -> Detector Interfa
 
 import logging
 import threading
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple, List
+import numpy as np
 
 from app.core.config import settings, Settings
 from app.core.exceptions import ImageTooLargeException
@@ -15,6 +16,8 @@ from app.ai.detection.base import BaseFaceDetector
 from app.ai.detection.detector import FaceDetector
 from app.ai.detection.schemas import DetectionResponse, FrameInferenceResult
 from app.ai.inference.device import get_device_telemetry
+from app.services.face_analysis_service import FaceAnalysisService
+from app.schemas.ai import DetectedFaceItem
 
 logger = logging.getLogger("deepvision.service.ai")
 
@@ -22,12 +25,14 @@ logger = logging.getLogger("deepvision.service.ai")
 class AIService:
     """
     Application-level AI Service.
-    Decouples API controllers from underlying model runtime and detector implementations.
+    Decouples API controllers from underlying model runtime, detector implementations,
+    and face analysis diagnostics.
     """
 
     def __init__(
         self,
         detector: Optional[BaseFaceDetector] = None,
+        analysis_service: Optional[FaceAnalysisService] = None,
         config: Optional[Settings] = None,
         model_path: Optional[str] = None,
     ):
@@ -37,12 +42,18 @@ class AIService:
             device=self.config.AI_DEVICE,
             target_size=(640, 640),
         )
+        self._analysis_service = analysis_service or FaceAnalysisService()
         logger.info(
             "AIService initialized with device: %s, model: %s, model_path: %s",
             self.config.AI_DEVICE,
             self.config.AI_MODEL_NAME,
             model_path,
         )
+
+    @property
+    def analysis_service(self) -> FaceAnalysisService:
+        """Access the underlying FaceAnalysisService."""
+        return self._analysis_service
 
     @property
     def detector(self) -> BaseFaceDetector:
@@ -104,17 +115,26 @@ class AIService:
         )
 
         return result
+    def _resolve_image_rgb(self, image_input: ImageSource) -> np.ndarray:
+        """Safely normalizes any ImageSource input into an in-memory RGB NumPy array."""
+        if isinstance(image_input, np.ndarray):
+            return image_input
+        preprocessor = getattr(self._detector, "preprocessor", None)
+        if preprocessor is not None and hasattr(preprocessor, "load_image"):
+            return preprocessor.load_image(image_input)
+        from app.ai.detection.preprocessor import ImagePreprocessor
+        return ImagePreprocessor().load_image(image_input)
 
-    def analyze_faces(
+    def detect_and_analyze_faces(
         self,
         image_input: ImageSource,
         confidence_threshold: Optional[float] = None,
         request_id: Optional[str] = None,
-        min_sharpness: float = 50.0,
-    ) -> Any:
+    ) -> Tuple[List[DetectedFaceItem], FrameInferenceResult]:
         """
-        Executes end-to-end face detection followed by detailed face quality,
-        landmark geometry, and 3D pose analysis.
+        Executes face detection followed by detailed face analysis via FaceAnalysisService.
+        Architecture:
+            API -> AI Service -> Face Detector -> Face Analysis Service
         """
         # 1. Enforce payload size limits before processing
         if isinstance(image_input, (bytes, bytearray)):
@@ -124,8 +144,51 @@ class AIService:
                     f"of {self.config.AI_MAX_IMAGE_SIZE_MB}MB ({self.config.ai_max_image_bytes} bytes)."
                 )
 
-        # 2. Resolve image to RGB numpy array
-        image_rgb = self._detector.preprocessor.load_image(image_input)
+        # 2. Resolve image to RGB numpy array safely
+        image_rgb = self._resolve_image_rgb(image_input)
+        orig_h, orig_w = image_rgb.shape[:2]
+
+        # 3. Detect faces via detector
+        detection_result: FrameInferenceResult = self.detect_faces(
+            image_input=image_rgb,
+            confidence_threshold=confidence_threshold,
+            request_id=request_id,
+        )
+
+        canvas_h = detection_result.image_height or orig_h
+        canvas_w = detection_result.image_width or orig_w
+
+        # 4. Analyze detected faces via dedicated FaceAnalysisService
+        face_items = self._analysis_service.analyze_detected_faces(
+            image_rgb=image_rgb,
+            detections=detection_result.detections,
+            image_shape=(canvas_h, canvas_w),
+        )
+
+        return face_items, detection_result
+
+    def analyze_faces(
+        self,
+        image_input: ImageSource,
+        confidence_threshold: Optional[float] = None,
+        request_id: Optional[str] = None,
+        min_sharpness: float = 50.0,
+    ) -> Tuple[Any, FrameInferenceResult]:
+        """
+        Executes end-to-end face detection followed by structured face analysis
+        via FaceAnalysisService.
+        """
+        # 1. Enforce payload size limits before processing
+        if isinstance(image_input, (bytes, bytearray)):
+            if len(image_input) > self.config.ai_max_image_bytes:
+                raise ImageTooLargeException(
+                    f"Image payload size ({len(image_input)} bytes) exceeds configured limit "
+                    f"of {self.config.AI_MAX_IMAGE_SIZE_MB}MB ({self.config.ai_max_image_bytes} bytes)."
+                )
+
+        # 2. Resolve image to RGB numpy array safely
+        image_rgb = self._resolve_image_rgb(image_input)
+        orig_h, orig_w = image_rgb.shape[:2]
 
         # 3. Detect faces
         detection_result: FrameInferenceResult = self.detect_faces(
@@ -134,10 +197,15 @@ class AIService:
             request_id=request_id,
         )
 
-        # 4. Perform comprehensive face analysis
-        from app.ai.analysis.quality import FaceAnalyzer
-        analyzer = FaceAnalyzer(min_sharpness=min_sharpness)
-        analyses = analyzer.analyze_detections(image_rgb, detection_result.detections)
+        canvas_h = detection_result.image_height or orig_h
+        canvas_w = detection_result.image_width or orig_w
+
+        # 4. Perform comprehensive structured face analysis via FaceAnalysisService
+        analyses = self._analysis_service.analyze_structured_detections(
+            image_rgb=image_rgb,
+            detections=detection_result.detections,
+            image_shape=(canvas_h, canvas_w),
+        )
 
         return analyses, detection_result
 
