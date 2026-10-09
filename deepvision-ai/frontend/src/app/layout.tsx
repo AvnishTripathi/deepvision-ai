@@ -1,9 +1,11 @@
-import type { Metadata } from 'next';
-import './globals.css';
+import type { Metadata } from "next";
+import "./globals.css";
+import LayoutShell from "@/components/LayoutShell";
 
 export const metadata: Metadata = {
-  title: 'DeepVision AI — Advanced AI-Powered Face Detection',
-  description: 'Advanced AI-Powered Face Detection & Video Analysis Platform',
+  title: "DeepVision AI — See. Detect. Track. Analyze. Understand.",
+  description:
+    "Enterprise AI Computer Vision platform for multi-face detection, ByteTrack tracking, 3D pose, and face quality analytics.",
 };
 
 export default function RootLayout({
@@ -12,9 +14,10 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body>{children}</body>
+    <html lang="en" className="dark">
+      <body className="antialiased selection:bg-brand-cyan/20 selection:text-brand-cyan">
+        <LayoutShell>{children}</LayoutShell>
+      </body>
     </html>
   );
 }
-
