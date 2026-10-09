@@ -1,178 +1,199 @@
 "use client";
 
-import { VideoJob, VideoMetrics } from "@/lib/api/types";
-import { buildVideoDownloadUrl } from "@/lib/api/video";
+import React from "react";
+import { VideoJob } from "@/lib/api/types";
 import {
-  Download,
   Film,
+  Download,
   Activity,
-  Layers,
+  CheckCircle2,
   Clock,
   Gauge,
-  ShieldCheck,
-  CheckCircle2,
+  Layers,
+  Sparkles,
 } from "lucide-react";
 
 interface VideoResultViewProps {
   job: VideoJob;
 }
 
-// Generate distinct color themes for Track ID tags
-const TRACK_COLOR_PALETTES = [
-  "border-cyan-500/40 bg-cyan-500/10 text-cyan-300",
-  "border-violet-500/40 bg-violet-500/10 text-violet-300",
-  "border-emerald-500/40 bg-emerald-500/10 text-emerald-300",
-  "border-amber-500/40 bg-amber-500/10 text-amber-300",
-  "border-rose-500/40 bg-rose-500/10 text-rose-300",
-  "border-blue-500/40 bg-blue-500/10 text-blue-300",
-  "border-fuchsia-500/40 bg-fuchsia-500/10 text-fuchsia-300",
-  "border-teal-500/40 bg-teal-500/10 text-teal-300",
+// Visually distinct palette for track tags (Item 13)
+const TRACK_BADGE_COLORS = [
+  "border-cyan-500/40 bg-cyan-500/15 text-cyan-300",
+  "border-emerald-500/40 bg-emerald-500/15 text-emerald-300",
+  "border-purple-500/40 bg-purple-500/15 text-purple-300",
+  "border-amber-500/40 bg-amber-500/15 text-amber-300",
+  "border-blue-500/40 bg-blue-500/15 text-blue-300",
+  "border-pink-500/40 bg-pink-500/15 text-pink-300",
+  "border-teal-500/40 bg-teal-500/15 text-teal-300",
+  "border-rose-500/40 bg-rose-500/15 text-rose-300",
 ];
 
 export default function VideoResultView({ job }: VideoResultViewProps) {
   const metrics = job.metrics;
-  const downloadUrl = buildVideoDownloadUrl(job.job_id);
 
-  // Derive unique track list from 1 up to unique_track_count
-  const uniqueTrackCount = metrics?.unique_track_count ?? 0;
-  const trackIdList = Array.from({ length: uniqueTrackCount }, (_, i) => i + 1);
+  const getTrackColor = (trackId: number) => {
+    return TRACK_BADGE_COLORS[Math.abs(trackId) % TRACK_BADGE_COLORS.length];
+  };
 
   return (
     <div className="space-y-6">
-      {/* 1. Annotated Output Video Player */}
-      <div className="overflow-hidden rounded-2xl border border-slate-800 bg-dark-950 shadow-card">
-        <div className="flex items-center justify-between border-b border-slate-800/80 bg-dark-900/90 px-4 py-3">
-          <div className="flex items-center gap-2 text-xs font-semibold text-white">
-            <Film className="h-4 w-4 text-brand-cyan" />
-            <span>Annotated ByteTrack Video Stream</span>
-          </div>
-
-          <a
-            href={downloadUrl}
-            download={`deepvision_annotated_${job.job_id.slice(0, 8)}.mp4`}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 text-xs font-bold text-emerald-400 hover:bg-emerald-500/25 transition-colors"
-          >
-            <Download className="h-3.5 w-3.5" />
-            <span>Download MP4</span>
-          </a>
-        </div>
-
-        <video
-          src={downloadUrl}
-          controls
-          className="block w-full max-h-[460px] bg-black"
-        />
-      </div>
-
-      {/* 2. Tracking Visualization: Visually Distinct Track Labels (Step 13) */}
+      {/* Annotated Video Player (Item 12) */}
       <div className="rounded-2xl border border-slate-800 bg-dark-900/90 p-5 shadow-card space-y-4">
-        <div className="flex items-center justify-between border-b border-slate-800/80 pb-3">
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
           <div className="flex items-center gap-2">
-            <Layers className="h-4 w-4 text-brand-cyan" />
-            <h4 className="text-sm font-bold text-white">
-              Temporary Video Tracks ({uniqueTrackCount})
-            </h4>
+            <CheckCircle2 className="h-5 w-5 text-emerald-400" />
+            <h3 className="text-base font-bold text-white">
+              Annotated Output Video
+            </h3>
           </div>
-          <span className="text-[11px] text-slate-400">
-            Session-scoped spatio-temporal trajectories
-          </span>
+
+          {job.annotated_video_url && (
+            <a
+              href={job.annotated_video_url}
+              download={`deepvision_job_${job.job_id}.mp4`}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-brand-cyan/15 border border-brand-cyan/40 px-3.5 py-1.5 text-xs font-semibold text-brand-cyan hover:bg-brand-cyan/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>Download MP4</span>
+            </a>
+          )}
         </div>
 
-        {trackIdList.length > 0 ? (
-          <div className="flex flex-wrap gap-2.5">
-            {trackIdList.map((trackNum, idx) => {
-              const colorClass =
-                TRACK_COLOR_PALETTES[idx % TRACK_COLOR_PALETTES.length];
-              return (
-                <div
-                  key={trackNum}
-                  className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs font-semibold ${colorClass}`}
-                >
-                  <span className="flex h-2 w-2 rounded-full bg-current opacity-80" />
-                  <span>Track #{trackNum}</span>
-                </div>
-              );
-            })}
+        {job.annotated_video_url ? (
+          <div className="overflow-hidden rounded-xl border border-slate-800 bg-black">
+            <video
+              src={job.annotated_video_url}
+              controls
+              autoPlay
+              muted
+              loop
+              className="block w-full max-h-[460px] object-contain"
+            />
           </div>
         ) : (
-          <p className="text-xs text-slate-400">
-            No continuous face tracks observed during this clip.
-          </p>
+          <div className="p-8 text-center text-xs text-slate-400">
+            No video playback URL available.
+          </div>
         )}
-
-        <div className="rounded-xl border border-slate-800/60 bg-dark-850/40 p-3 text-[11px] text-slate-400 flex items-start gap-2.5">
-          <ShieldCheck className="h-4 w-4 text-emerald-400 shrink-0 mt-0.5" />
-          <span>
-            <strong>Zero Biometric Identity Rule</strong>: Track IDs denote temporal geometric continuity only. They do not represent human names, person identities, or cross-video database profiles.
-          </span>
-        </div>
       </div>
 
-      {/* 3. Video Summary & Processing Telemetry (Step 12) */}
+      {/* Video Summary Section (Item 12: strictly real backend metrics) */}
       {metrics && (
-        <div className="rounded-2xl border border-slate-800 bg-dark-900/90 p-5 shadow-card space-y-4">
-          <div className="flex items-center gap-2 border-b border-slate-800/80 pb-3">
-            <Activity className="h-4 w-4 text-brand-cyan" />
-            <h4 className="text-sm font-bold text-white">Video Summary & Telemetry</h4>
-          </div>
+        <div className="rounded-2xl border border-slate-800 bg-dark-900/90 p-6 shadow-card space-y-4">
+          <h4 className="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+            <Film className="h-4 w-4 text-brand-cyan" />
+            <span>Video Summary</span>
+          </h4>
 
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 text-xs">
-            {/* Unique Tracks */}
-            <div className="rounded-xl border border-slate-800/80 bg-dark-850/50 p-3.5">
-              <span className="text-slate-400 text-[11px]">Unique Tracks</span>
-              <p className="text-2xl font-black text-white mt-1">
-                {metrics.unique_track_count}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <div className="rounded-xl border border-slate-800 bg-dark-850 p-3">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                Duration
+              </span>
+              <p className="mt-1 text-sm font-mono font-bold text-white">
+                {metrics.duration_seconds.toFixed(2)}s
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Session trajectories</p>
             </div>
 
-            {/* Peak Simultaneous Faces */}
-            <div className="rounded-xl border border-slate-800/80 bg-dark-850/50 p-3.5">
-              <span className="text-slate-400 text-[11px]">Peak Simultaneous</span>
-              <p className="text-2xl font-black text-brand-cyan mt-1">
+            <div className="rounded-xl border border-slate-800 bg-dark-850 p-3">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                FPS
+              </span>
+              <p className="mt-1 text-sm font-mono font-bold text-white">
+                {metrics.fps.toFixed(1)}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-dark-850 p-3">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                Unique Tracks
+              </span>
+              <p className="mt-1 text-sm font-mono font-bold text-emerald-400">
+                {metrics.unique_tracks_count}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-dark-850 p-3">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                Peak Faces
+              </span>
+              <p className="mt-1 text-sm font-mono font-bold text-brand-cyan">
                 {metrics.peak_simultaneous_faces}
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Max faces per frame</p>
             </div>
 
-            {/* Average Processing FPS */}
-            <div className="rounded-xl border border-slate-800/80 bg-dark-850/50 p-3.5">
-              <span className="text-slate-400 text-[11px]">Processing FPS</span>
-              <p className="text-2xl font-black text-purple-300 mt-1">
-                {metrics.average_fps.toFixed(1)}
+            <div className="rounded-xl border border-slate-800 bg-dark-850 p-3">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                Processing Speed
+              </span>
+              <p className="mt-1 text-sm font-mono font-bold text-white">
+                {metrics.average_processing_fps.toFixed(1)} FPS
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Throughput rate</p>
             </div>
 
-            {/* Processing Time */}
-            <div className="rounded-xl border border-slate-800/80 bg-dark-850/50 p-3.5">
-              <span className="text-slate-400 text-[11px]">Processing Time</span>
-              <p className="text-2xl font-black text-emerald-400 mt-1">
-                {(metrics.total_processing_time / 1000).toFixed(2)}s
+            <div className="rounded-xl border border-slate-800 bg-dark-850 p-3">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                Processing Time
+              </span>
+              <p className="mt-1 text-sm font-mono font-bold text-white">
+                {metrics.processing_time_seconds.toFixed(2)}s
               </p>
-              <p className="text-[10px] text-slate-500 mt-0.5">
-                {metrics.average_frame_processing_time.toFixed(1)} ms/frame
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-dark-850 p-3">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                Total Frames
+              </span>
+              <p className="mt-1 text-sm font-mono font-bold text-white">
+                {metrics.total_frames.toLocaleString()}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-slate-800 bg-dark-850 p-3">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">
+                Processed
+              </span>
+              <p className="mt-1 text-sm font-mono font-bold text-white">
+                {metrics.processed_frames.toLocaleString()}
               </p>
             </div>
           </div>
+        </div>
+      )}
 
-          {/* Additional Video Stats */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 text-xs border-t border-slate-800/80 pt-3">
-            <div className="text-slate-400">
-              <span>Total Processed Frames: </span>
-              <strong className="text-white font-mono">{metrics.processed_frames} / {metrics.total_frames}</strong>
-            </div>
-            <div className="text-slate-400">
-              <span>Total Detections: </span>
-              <strong className="text-white font-mono">{metrics.total_faces_detected ?? "N/A"}</strong>
-            </div>
-            <div className="text-slate-400">
-              <span>Track Lost Events: </span>
-              <strong className="text-white font-mono">{metrics.track_lost_count}</strong>
-            </div>
+      {/* Tracking Visualization & Track IDs (Item 13) */}
+      {metrics && metrics.tracks_summary && metrics.tracks_summary.length > 0 && (
+        <div className="rounded-2xl border border-slate-800 bg-dark-900/90 p-6 shadow-card space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+            <h4 className="text-sm font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+              <Activity className="h-4 w-4 text-emerald-400" />
+              <span>Detected Visual Tracks</span>
+            </h4>
+            <span className="text-xs text-slate-400 font-normal">
+              Temporary session IDs (Zero identity recognition)
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4">
+            {metrics.tracks_summary.map((track) => (
+              <div
+                key={track.track_id}
+                className={`rounded-xl border p-3 ${getTrackColor(track.track_id)}`}
+              >
+                <div className="font-bold text-sm">
+                  Track #{track.track_id}
+                </div>
+                <div className="mt-1 text-[11px] opacity-80 space-y-0.5">
+                  <p>Active: {track.frames_active} frames</p>
+                  <p>Conf: {(track.avg_confidence * 100).toFixed(0)}%</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
     </div>
   );
 }
+

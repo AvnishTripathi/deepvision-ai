@@ -119,7 +119,7 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
                 key={item.href}
                 href={item.href}
                 onClick={onClose}
-                className={`group flex items-center justify-between rounded-xl px-3.5 py-3 text-sm font-medium transition-all ${
+                className={`group flex items-center justify-between rounded-xl px-3.5 py-3 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan ${
                   isActive
                     ? "bg-gradient-to-r from-brand-cyan/15 via-brand-blue/10 to-transparent text-brand-cyan border border-brand-cyan/30 shadow-sm"
                     : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"

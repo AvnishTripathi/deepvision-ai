@@ -74,7 +74,7 @@ export default function ImageAnalysisPage() {
           parseInt(sessionStorage.getItem("dv_images_analyzed") || "0", 10) + 1;
         const curFaces =
           parseInt(sessionStorage.getItem("dv_faces_detected") || "0", 10) +
-          (result.face_count || 0);
+          (result.total_faces || 0);
         sessionStorage.setItem("dv_images_analyzed", curImg.toString());
         sessionStorage.setItem("dv_faces_detected", curFaces.toString());
       } catch {
@@ -134,6 +134,7 @@ export default function ImageAnalysisPage() {
                 />
               ) : (
                 <div className="relative overflow-hidden rounded-2xl border border-slate-800 bg-dark-900 shadow-card">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={previewUrl}
                     alt="Uploaded preview"

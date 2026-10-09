@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import LayoutShell from "@/components/LayoutShell";
+import { ThemeProvider } from "@/context/ThemeContext";
 
 export const metadata: Metadata = {
   title: "DeepVision AI — See. Detect. Track. Analyze. Understand.",
@@ -15,9 +16,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <body className="antialiased selection:bg-brand-cyan/20 selection:text-brand-cyan">
-        <LayoutShell>{children}</LayoutShell>
+      <body className="antialiased selection:bg-brand-cyan/20 selection:text-brand-cyan transition-colors duration-200">
+        <ThemeProvider>
+          <LayoutShell>{children}</LayoutShell>
+        </ThemeProvider>
       </body>
     </html>
   );
 }
+

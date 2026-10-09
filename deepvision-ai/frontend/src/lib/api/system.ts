@@ -1,49 +1,49 @@
 /**
- * DeepVision AI — System Status & Model Diagnostics API Client
+ * DeepVision AI — System Telemetry & Health Probing
  */
 
-import { request } from "./client";
-import { SystemStatus } from "./types";
+import { API_BASE_URL } from "./client";
+import { SystemStatusResponse } from "./types";
 
-interface RawAiStatus {
-  model?: string;
-  device?: string;
-  status?: string;
-}
-
-interface RawHealth {
-  status?: string;
-}
-
-/**
- * Checks connectivity to the FastAPI backend and retrieves active model and hardware device.
- */
-export async function getSystemHealth(): Promise<SystemStatus> {
+export async function checkHealth(): Promise<boolean> {
   try {
-    const aiData = await request<RawAiStatus>("/ai/status");
-    return {
-      status: "online",
-      model: aiData.model || "YuNet ONNX",
-      device: aiData.device || "CPU",
-      is_ready: true,
-    };
+    const res = await fetch(`${API_BASE_URL}/api/v1/health`, {
+      method: "GET",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    return res.ok;
   } catch {
-    try {
-      const healthData = await request<RawHealth>("/health");
-      return {
-        status: healthData.status === "healthy" || healthData.status === "ok" ? "online" : "offline",
-        model: "YuNet ONNX",
-        device: "CPU",
-        is_ready: true,
-      };
-    } catch {
-      return {
-        status: "offline",
-        is_ready: false,
-      };
-    }
+    return false;
   }
 }
 
-export const fetchSystemStatus = getSystemHealth;
+export async function fetchSystemStatus(): Promise<SystemStatusResponse> {
+  try {
+    const isHealthy = await checkHealth();
+    if (!isHealthy) {
+      return { status: "offline", is_ready: false };
+    }
+
+    const res = await fetch(`${API_BASE_URL}/api/v1/ai/status`, {
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      return { status: "online", is_ready: true, device: "CPU", model: "YuNet ONNX" };
+    }
+
+    const data = await res.json();
+    return {
+      status: data.is_operational ? "online" : "ready",
+      is_ready: data.is_operational,
+      device: data.configured_device ? data.configured_device.toUpperCase() : "CPU",
+      model: data.model_name || "YuNet ONNX",
+      tracking_algorithm: "ByteTrack MOT",
+      backend_version: data.model_version || "1.0.0",
+    };
+  } catch {
+    return { status: "offline", is_ready: false };
+  }
+}
 

@@ -1,81 +1,79 @@
 /**
- * DeepVision AI — Base HTTP API Client
- * Dynamically resolves API root via NEXT_PUBLIC_API_URL or relative Next.js proxy,
- * and formats structured domain errors.
+ * DeepVision AI API Client
+ * Base configuration and HTTP request helpers.
  */
 
-export const getApiBaseUrl = (): string => {
-  const envUrl = process.env.NEXT_PUBLIC_API_URL;
-  if (envUrl && envUrl.trim().length > 0) {
-    // Strip trailing slash if present
-    const cleanUrl = envUrl.replace(/\/+$/, "");
-    return `${cleanUrl}/api/v1`;
-  }
-  // Fallback to Next.js route proxy
-  return "/api/v1";
-};
+export const API_BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8000";
 
 export class ApiError extends Error {
-  statusCode: number;
-  errorCode?: string;
-  detail?: string;
+  public status: number;
+  public details?: unknown;
 
-  constructor(message: string, statusCode: number = 500, detail?: string, errorCode?: string) {
+  constructor(message: string, status: number, details?: unknown) {
     super(message);
     this.name = "ApiError";
-    this.statusCode = statusCode;
-    this.detail = detail;
-    this.errorCode = errorCode;
+    this.status = status;
+    this.details = details;
   }
 }
 
-export async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const baseUrl = getApiBaseUrl();
-  const url = `${baseUrl}${endpoint.startsWith("/") ? endpoint : `/${endpoint}`}`;
+interface RequestOptions extends RequestInit {
+  timeoutMs?: number;
+}
+
+export async function requestJson<T>(
+  endpoint: string,
+  options: RequestOptions = {}
+): Promise<T> {
+  const url = `${API_BASE_URL}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
+  const timeoutMs = options.timeoutMs ?? 30000;
+
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(url, {
       ...options,
+      signal: options.signal || controller.signal,
       headers: {
         Accept: "application/json",
         ...options.headers,
       },
     });
 
-    if (!response.ok) {
-      let errorMessage = `Request failed with status ${response.status}`;
-      let detail = "";
-      let errorCode = "";
+    clearTimeout(id);
 
+    if (!response.ok) {
+      let errorMsg = `HTTP Error ${response.status}: ${response.statusText}`;
+      let errorDetails: unknown = undefined;
       try {
         const errorJson = await response.json();
-        detail = errorJson.detail || errorJson.message || "";
-        errorCode = errorJson.error_code || "";
-        if (detail) {
-          errorMessage = detail;
+        errorDetails = errorJson;
+        if (errorJson.detail) {
+          errorMsg = typeof errorJson.detail === "string" ? errorJson.detail : JSON.stringify(errorJson.detail);
+        } else if (errorJson.message) {
+          errorMsg = errorJson.message;
         }
       } catch {
-        // Fallback to status text
-        if (response.status === 413) {
-          errorMessage = "File size exceeds server processing limits.";
-        } else if (response.status === 400) {
-          errorMessage = "Invalid input or corrupted media container.";
-        } else if (response.status === 404) {
-          errorMessage = "Requested resource was not found.";
-        } else if (response.status === 503) {
-          errorMessage = "AI model is not currently operational.";
-        }
+        // Fall back to HTTP status message
       }
-
-      throw new ApiError(errorMessage, response.status, detail, errorCode);
+      throw new ApiError(errorMsg, response.status, errorDetails);
     }
 
     return (await response.json()) as T;
-  } catch (err: unknown) {
+  } catch (err: any) {
+    clearTimeout(id);
+    if (err.name === "AbortError") {
+      throw new ApiError(`Request timeout after ${timeoutMs}ms`, 408);
+    }
     if (err instanceof ApiError) {
       throw err;
     }
-    const message = err instanceof Error ? err.message : "Network failure connecting to AI backend service.";
-    throw new ApiError(message, 0);
+    throw new ApiError(
+      err.message || "Failed to communicate with backend server",
+      0
+    );
   }
 }
+

@@ -1,15 +1,17 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Menu, Activity, Cpu, Sparkles, RefreshCw } from "lucide-react";
+import { Menu, Activity, Cpu, RefreshCw, Sun, Moon } from "lucide-react";
 import { fetchSystemStatus } from "@/lib/api";
 import { SystemStatusResponse } from "@/types";
+import { useTheme } from "@/context/ThemeContext";
 
 interface HeaderProps {
   onToggleSidebar: () => void;
 }
 
 export default function Header({ onToggleSidebar }: HeaderProps) {
+  const { theme, toggleTheme } = useTheme();
   const [status, setStatus] = useState<SystemStatusResponse>({
     status: "checking",
     is_ready: false,
@@ -42,8 +44,8 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
       <div className="flex items-center gap-4">
         <button
           onClick={onToggleSidebar}
-          aria-label="Toggle navigation"
-          className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-800 bg-dark-850 text-slate-300 hover:border-slate-700 hover:text-white lg:hidden"
+          aria-label="Toggle navigation menu"
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-800 bg-dark-850 text-slate-300 hover:border-slate-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan lg:hidden"
         >
           <Menu className="h-5 w-5" />
         </button>
@@ -58,8 +60,22 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
         </div>
       </div>
 
-      {/* Right: Hardware & Online Indicator */}
+      {/* Right: Controls, Hardware & Status */}
       <div className="flex items-center gap-3">
+        {/* Theme Toggle Button */}
+        <button
+          onClick={toggleTheme}
+          aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-800 bg-dark-850 text-slate-300 transition-colors hover:border-slate-700 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
+        >
+          {theme === "dark" ? (
+            <Sun className="h-4 w-4 text-amber-400" />
+          ) : (
+            <Moon className="h-4 w-4 text-brand-cyan" />
+          )}
+        </button>
+
         {/* Hardware Specs Badge */}
         <div className="hidden items-center gap-2 rounded-xl border border-slate-800/80 bg-dark-850/80 px-3 py-1.5 text-xs text-slate-300 md:flex">
           <Cpu className="h-4 w-4 text-brand-cyan" />
@@ -81,6 +97,8 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
               ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400"
               : "border-rose-500/30 bg-rose-500/10 text-rose-400"
           }`}
+          role="status"
+          aria-live="polite"
         >
           <span className="relative flex h-2.5 w-2.5">
             {isOnline && (
@@ -93,13 +111,14 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
             ></span>
           </span>
           <span className="font-semibold">
-            {isOnline ? "System Online" : "System Offline"}
+            {isOnline ? "System Online" : "Backend Offline"}
           </span>
           <button
             onClick={checkStatus}
             disabled={isLoading}
-            title="Refresh status"
-            className="ml-1 text-slate-400 hover:text-white"
+            aria-label="Refresh backend status"
+            title="Refresh backend status"
+            className="ml-1 text-slate-400 hover:text-white focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-brand-cyan rounded p-0.5"
           >
             <RefreshCw
               className={`h-3 w-3 ${isLoading ? "animate-spin" : ""}`}
@@ -110,3 +129,4 @@ export default function Header({ onToggleSidebar }: HeaderProps) {
     </header>
   );
 }
+

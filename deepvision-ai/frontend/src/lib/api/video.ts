@@ -1,73 +1,118 @@
 /**
- * DeepVision AI — Video Processing & ByteTrack Multi-Face Tracking API Client
+ * DeepVision AI — Asynchronous Video Tracking & MOT API
  */
 
-import { request, getApiBaseUrl } from "./client";
-import { VideoJob } from "./types";
+import { API_BASE_URL, ApiError } from "./client";
+import { VideoJob, VideoSubmitResponse } from "./types";
 
-export interface VideoProcessingSubmitOptions {
+export interface VideoProcessingRequestOptions {
   confidenceThreshold?: number;
-  annotateVideo?: boolean;
   detectionInterval?: number;
   analysisInterval?: number;
+  annotateVideo?: boolean;
+  enableAnalysis?: boolean;
 }
 
-/**
- * Submits a video file to the asynchronous tracking engine.
- */
 export async function submitVideoAnalysisJob(
   file: File,
-  options: VideoProcessingSubmitOptions = {}
-): Promise<VideoJob> {
+  options: VideoProcessingRequestOptions = {}
+): Promise<VideoSubmitResponse> {
   const formData = new FormData();
   formData.append("file", file);
 
-  const params = new URLSearchParams();
+  const queryParams = new URLSearchParams();
   if (options.confidenceThreshold !== undefined) {
-    params.set("confidence_threshold", options.confidenceThreshold.toString());
-  }
-  if (options.annotateVideo !== undefined) {
-    params.set("annotate_video", options.annotateVideo ? "true" : "false");
+    queryParams.append("confidence_threshold", options.confidenceThreshold.toString());
   }
   if (options.detectionInterval !== undefined) {
-    params.set("detection_interval", options.detectionInterval.toString());
+    queryParams.append("detection_interval", options.detectionInterval.toString());
   }
   if (options.analysisInterval !== undefined) {
-    params.set("analysis_interval", options.analysisInterval.toString());
+    queryParams.append("analysis_interval", options.analysisInterval.toString());
+  }
+  if (options.annotateVideo !== undefined) {
+    queryParams.append("annotate_video", options.annotateVideo.toString());
+  }
+  if (options.enableAnalysis !== undefined) {
+    queryParams.append("enable_analysis", options.enableAnalysis.toString());
   }
 
-  const query = params.toString() ? `?${params.toString()}` : "";
-  const endpoint = `/video/analyze${query}`;
+  const queryString = queryParams.toString() ? `?${queryParams.toString()}` : "";
+  const url = `${API_BASE_URL}/api/v1/video/analyze${queryString}`;
 
-  return request<VideoJob>(endpoint, {
+  const response = await fetch(url, {
     method: "POST",
     body: formData,
   });
+
+  if (!response.ok) {
+    let errorMsg = `HTTP Error ${response.status}: ${response.statusText}`;
+    try {
+      const errJson = await response.json();
+      if (errJson.detail) {
+        errorMsg = typeof errJson.detail === "string" ? errJson.detail : JSON.stringify(errJson.detail);
+      } else if (errJson.message) {
+        errorMsg = errJson.message;
+      }
+    } catch {
+      // Fallback
+    }
+    throw new ApiError(errorMsg, response.status);
+  }
+
+  return (await response.json()) as VideoSubmitResponse;
 }
 
-/**
- * Polls the current execution status, frame count, progress percentage,
- * and telemetry metrics for a video processing job.
- */
 export async function pollVideoJobStatus(jobId: string): Promise<VideoJob> {
-  return request<VideoJob>(`/video/jobs/${jobId}`, {
-    method: "GET",
-  });
+  const url = `${API_BASE_URL}/api/v1/video/jobs/${encodeURIComponent(jobId)}`;
+  const response = await fetch(url);
+
+  if (!response.ok) {
+    let errorMsg = `HTTP Error ${response.status}: ${response.statusText}`;
+    try {
+      const errJson = await response.json();
+      if (errJson.detail) {
+        errorMsg = typeof errJson.detail === "string" ? errJson.detail : JSON.stringify(errJson.detail);
+      }
+    } catch {
+      // Fallback
+    }
+    throw new ApiError(errorMsg, response.status);
+  }
+
+  const raw = await response.json();
+  const annotatedVideoUrl =
+    raw.status === "completed"
+      ? `${API_BASE_URL}/api/v1/video/jobs/${encodeURIComponent(jobId)}/download`
+      : null;
+
+  return {
+    job_id: raw.job_id,
+    status: raw.status,
+    progress: raw.progress ?? 0,
+    processed_frames: raw.processed_frames ?? 0,
+    total_frames: raw.total_frames ?? 0,
+    current_faces: raw.current_faces,
+    active_tracks: raw.active_tracks,
+    error: raw.error ?? null,
+    metrics: raw.metrics ?? null,
+    annotated_video_url: annotatedVideoUrl,
+    created_at: raw.created_at,
+    completed_at: raw.completed_at,
+  };
 }
 
-/**
- * Requests graceful cancellation of an active video processing job.
- */
-export async function cancelVideoJobExecution(jobId: string): Promise<VideoJob> {
-  return request<VideoJob>(`/video/jobs/${jobId}/cancel`, {
-    method: "POST",
-  });
+export async function cancelVideoJobExecution(jobId: string): Promise<boolean> {
+  const url = `${API_BASE_URL}/api/v1/video/jobs/${encodeURIComponent(jobId)}/cancel`;
+  try {
+    const response = await fetch(url, { method: "POST" });
+    return response.ok;
+  } catch {
+    return false;
+  }
 }
 
-/**
- * Constructs absolute URL for downloading the annotated MP4 video artifact.
- */
-export function buildVideoDownloadUrl(jobId: string): string {
-  const baseUrl = getApiBaseUrl();
-  return `${baseUrl}/video/jobs/${jobId}/download`;
+export function getVideoDownloadUrl(jobId: string): string {
+  return `${API_BASE_URL}/api/v1/video/jobs/${encodeURIComponent(jobId)}/download`;
 }
+

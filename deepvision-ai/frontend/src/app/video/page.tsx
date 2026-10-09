@@ -73,7 +73,13 @@ export default function VideoAnalysisPage() {
         annotateVideo,
       });
 
-      setActiveJob(initialJob);
+      setActiveJob({
+        job_id: initialJob.job_id,
+        status: initialJob.status,
+        progress: 0,
+        processed_frames: 0,
+        total_frames: 0,
+      });
       startPolling(initialJob.job_id);
 
       // Record session metric
@@ -124,8 +130,10 @@ export default function VideoAnalysisPage() {
   const handleCancelJob = async () => {
     if (!activeJob) return;
     try {
-      const cancelled = await cancelVideoJobExecution(activeJob.job_id);
-      setActiveJob(cancelled);
+      const success = await cancelVideoJobExecution(activeJob.job_id);
+      if (success) {
+        setActiveJob((prev) => (prev ? { ...prev, status: "cancelled" } : null));
+      }
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;

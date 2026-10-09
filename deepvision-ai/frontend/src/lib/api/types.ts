@@ -1,8 +1,21 @@
 /**
- * DeepVision AI — Typed Domain Schemas
- * Synchronized with FastAPI Pydantic v2 schemas across detection,
- * landmarks, 3D pose, quality grading, and ByteTrack video jobs.
+ * DeepVision AI — Shared API & Model Schemas
+ * Strictly matches backend schemas for YuNet and ByteTrack pipelines.
  */
+
+export interface LandmarkCoordinate {
+  x: number;
+  y: number;
+  confidence?: number;
+}
+
+export interface FaceLandmarks {
+  right_eye: LandmarkCoordinate;
+  left_eye: LandmarkCoordinate;
+  nose_tip: LandmarkCoordinate;
+  mouth_right: LandmarkCoordinate;
+  mouth_left: LandmarkCoordinate;
+}
 
 export interface BoundingBox {
   x1: number;
@@ -11,115 +24,97 @@ export interface BoundingBox {
   y2: number;
   width?: number;
   height?: number;
-  area?: number;
 }
 
-export interface LandmarkPoint {
-  x: number;
-  y: number;
-}
-
-export interface FaceLandmarks {
-  right_eye?: LandmarkPoint;
-  left_eye?: LandmarkPoint;
-  nose_tip?: LandmarkPoint;
-  mouth_right?: LandmarkPoint;
-  mouth_left?: LandmarkPoint;
-  [key: string]: LandmarkPoint | undefined;
-}
-
-export interface FacePose {
+export interface HeadPoseEstimation {
   yaw: number;
   pitch: number;
   roll: number;
-  frontality_score?: number;
-  pose_category?: "FRONTAL" | "SLIGHT_TURN" | "PROFILE" | "UPWARD" | "DOWNWARD" | string;
+  pose_category?: string;
 }
 
-export interface BlurMetrics {
-  blur_score: number;
-  blur_status: "sharp" | "slightly_blurred" | "blurry" | string;
-  laplacian_variance?: number;
-  category?: string;
+export type HeadPoseAngles = HeadPoseEstimation;
+
+export interface FaceQualityScore {
+  quality_score?: number;
+  overall_score?: number;
+  overall_quality?: number;
+  clarity_score?: number;
+  illumination_score?: number;
+  contrast_score?: number;
+  pose_score?: number;
+  sharpness?: number;
+  brightness?: number;
+  contrast?: number;
+  grade?: string;
+  classification?: string;
+  is_usable?: boolean;
 }
 
-export interface BrightnessMetrics {
-  brightness_score: number;
-  brightness_status: "acceptable" | "too_dark" | "too_bright" | string;
-  mean_luminance?: number;
-  category?: string;
+export interface ClarityMetrics {
+  sharpness?: number;
+  variance?: number;
+  blur_status?: string;
+  is_sharp?: boolean;
+  score?: number;
+  blur_score?: number;
+}
+
+export interface IlluminationMetrics {
+  brightness?: number;
+  mean_brightness?: number;
+  brightness_status?: string;
+  is_well_lit?: boolean;
+  score?: number;
+  brightness_score?: number;
 }
 
 export interface ContrastMetrics {
-  contrast_score: number;
-  contrast_status: "acceptable" | "low_contrast" | "high_contrast" | string;
-  std_dev?: number;
+  contrast?: number;
+  michelson_contrast?: number;
+  rms_contrast?: number;
+  contrast_status?: string;
+  score?: number;
+  contrast_score?: number;
 }
 
 export interface FaceSizeMetrics {
-  width: number;
-  height: number;
-  area_fraction?: number;
-  size_category?: "TINY" | "SMALL" | "MEDIUM" | "LARGE" | string;
-  size_score?: number;
-  is_sufficient?: boolean;
+  width?: number;
+  height?: number;
+  area_pixels?: number;
+  size_category?: string;
 }
 
-export interface FaceQuality {
-  quality_score: number;
-  overall_quality?: number;
-  grade: "EXCELLENT" | "GOOD" | "FAIR" | "POOR" | "UNUSABLE" | string;
-  is_usable: boolean;
-  classification?: string;
-}
-
-export interface FaceDetection {
-  face_index: number;
+export interface StructuredFaceAnalysis {
+  face_id?: string | number;
+  face_index?: number;
   bbox: BoundingBox;
   confidence: number;
+  landmarks: FaceLandmarks;
   quality_score?: number;
   classification?: string;
-  landmarks?: FaceLandmarks;
-  landmarks_list?: LandmarkPoint[];
-  pose?: FacePose | null;
-  size: FaceSizeMetrics;
-  illumination?: BrightnessMetrics;
-  brightness?: BrightnessMetrics;
-  clarity?: BlurMetrics;
-  blur?: BlurMetrics;
+  quality?: FaceQualityScore;
+  clarity?: ClarityMetrics;
+  blur?: ClarityMetrics;
+  illumination?: IlluminationMetrics;
+  brightness?: IlluminationMetrics;
   contrast?: ContrastMetrics;
-  quality: FaceQuality;
-}
-
-export type StructuredFaceAnalysis = FaceDetection;
-
-export interface PerformanceTimingBreakdown {
-  total_ms: number;
-  detection_ms?: number;
-  landmark_ms?: number;
-  quality_analysis_ms?: number;
-  pose_ms?: number;
+  size?: FaceSizeMetrics;
+  pose?: HeadPoseEstimation;
+  head_pose?: HeadPoseEstimation;
 }
 
 export interface ImageAnalysisResponse {
-  success: boolean;
-  model: string;
-  device: string;
+  status: string;
+  total_faces: number;
+  face_count: number;
+  model?: string;
+  device?: string;
+  faces: StructuredFaceAnalysis[];
   image_width: number;
   image_height: number;
   processing_time_ms: number;
-  face_count: number;
-  faces: FaceDetection[];
-  timing?: PerformanceTimingBreakdown;
-  detection_time_ms?: number;
-  landmark_time_ms?: number;
-  quality_analysis_time_ms?: number;
-  pose_time_ms?: number;
-  total_analysis_time_ms?: number;
-  request_id?: string;
 }
-
-export type AIAnalysisResponse = ImageAnalysisResponse;
 
 export type VideoJobStatus =
   | "queued"
@@ -128,44 +123,52 @@ export type VideoJobStatus =
   | "failed"
   | "cancelled";
 
+export interface TrackSummaryItem {
+  track_id: number;
+  frames_active: number;
+  start_frame: number;
+  end_frame: number;
+  avg_confidence: number;
+}
+
 export interface VideoMetrics {
+  duration_seconds: number;
   total_frames: number;
   processed_frames: number;
-  total_processing_time: number;
-  average_frame_processing_time: number;
-  average_fps: number;
+  fps: number;
+  average_processing_fps: number;
+  processing_time_seconds: number;
+  unique_tracks_count: number;
   peak_simultaneous_faces: number;
-  unique_track_count: number;
-  track_lost_count: number;
-  total_faces_detected?: number;
-  detection_time_ms?: number;
-  tracking_time_ms?: number;
-  analysis_time_ms?: number;
-  annotation_time_ms?: number;
+  tracks_summary?: TrackSummaryItem[];
 }
 
 export interface VideoJob {
   job_id: string;
   status: VideoJobStatus;
-  created_at?: string;
-  started_at?: string;
-  completed_at?: string;
   progress: number;
-  total_frames: number;
   processed_frames: number;
+  total_frames: number;
+  current_faces?: number;
+  active_tracks?: number;
   error?: string | null;
   metrics?: VideoMetrics | null;
-  output_media?: string | null;
+  annotated_video_url?: string | null;
+  created_at?: string;
+  completed_at?: string | null;
 }
 
-export interface SystemStatus {
-  status: "online" | "offline" | "checking" | string;
-  model?: string;
-  device?: string;
+export interface VideoSubmitResponse {
+  job_id: string;
+  status: VideoJobStatus;
+  message?: string;
+}
+
+export interface SystemStatusResponse {
+  status: string;
   is_ready?: boolean;
+  device?: string;
+  model?: string;
+  tracking_algorithm?: string;
+  backend_version?: string;
 }
-
-export type VideoJobResponse = VideoJob;
-export type VideoProcessingMetrics = VideoMetrics;
-export type SystemStatusResponse = SystemStatus;
-

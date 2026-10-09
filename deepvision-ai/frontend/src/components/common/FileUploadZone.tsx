@@ -1,18 +1,17 @@
 "use client";
 
-import { useRef, useState, DragEvent, ChangeEvent } from "react";
+import React, { useState, useRef } from "react";
 import {
   UploadCloud,
-  FileCheck,
-  AlertCircle,
-  X,
-  File,
-  Loader2,
-  FileVideo,
   FileImage,
+  FileVideo,
+  X,
+  AlertCircle,
+  Loader2,
+  CheckCircle2,
 } from "lucide-react";
 
-export interface FileUploadZoneProps {
+interface FileUploadZoneProps {
   mediaType: "image" | "video";
   acceptedExtensions: string[];
   maxSizeMB: number;
@@ -31,186 +30,180 @@ export default function FileUploadZone({
   maxSizeMB,
   selectedFile,
   isLoading = false,
-  loadingMessage,
+  loadingMessage = "Processing...",
   onFileSelect,
   onClear,
   errorMessage,
   onDismissError,
 }: FileUploadZoneProps) {
   const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    if (!isLoading) {
-      setIsDragging(true);
-    }
-  };
-
-  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
-  const validateAndDispatch = (file: File) => {
-    const fileName = file.name.toLowerCase();
-    const ext = fileName.substring(fileName.lastIndexOf("."));
+  const validateAndSelect = (file: File) => {
+    setValidationError(null);
+    if (onDismissError) onDismissError();
 
     // Check extension
-    if (!acceptedExtensions.some((acc) => acc.toLowerCase() === ext)) {
-      throw new Error(
-        `Invalid file format. Supported extensions: ${acceptedExtensions.join(", ")}`
+    const ext = `.${file.name.split(".").pop()?.toLowerCase()}`;
+    if (!acceptedExtensions.includes(ext)) {
+      setValidationError(
+        `Invalid file type "${ext}". Supported formats: ${acceptedExtensions.join(", ")}`
       );
+      return;
     }
 
-    // Check size limit
-    const fileSizeMB = file.size / (1024 * 1024);
-    if (fileSizeMB > maxSizeMB) {
-      throw new Error(
-        `File is too large (${fileSizeMB.toFixed(1)} MB). Maximum allowed size is ${maxSizeMB} MB.`
+    // Check size cap
+    const maxBytes = maxSizeMB * 1024 * 1024;
+    if (file.size > maxBytes) {
+      setValidationError(
+        `File size (${(file.size / (1024 * 1024)).toFixed(1)} MB) exceeds maximum allowed ${maxSizeMB} MB.`
       );
+      return;
     }
 
     onFileSelect(file);
   };
 
-  const handleDrop = (e: DragEvent<HTMLDivElement>) => {
+  const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     setIsDragging(false);
-    if (isLoading) return;
+  };
 
-    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
-      try {
-        validateAndDispatch(e.dataTransfer.files[0]);
-      } catch (err: unknown) {
-        if (err instanceof Error && onDismissError) {
-          // Parent handles error or alerts
-        }
-      }
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      validateAndSelect(e.dataTransfer.files[0]);
     }
   };
 
-  const handleInputChange = (e: ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      try {
-        validateAndDispatch(e.target.files[0]);
-      } catch {
-        // Handled
-      }
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      validateAndSelect(e.target.files[0]);
     }
   };
 
-  const acceptString = acceptedExtensions.join(",");
+  const activeError = validationError || errorMessage;
+
+  const formatSize = (bytes: number) => {
+    if (bytes < 1024 * 1024) {
+      return `${(bytes / 1024).toFixed(1)} KB`;
+    }
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
 
   return (
     <div className="space-y-3">
-      {!selectedFile ? (
-        /* Empty Upload Dropzone */
-        <div
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onClick={() => !isLoading && fileInputRef.current?.click()}
-          className={`relative flex min-h-[300px] cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed p-8 text-center transition-all ${
-            isDragging
-              ? "border-brand-cyan bg-brand-cyan/5 shadow-glow"
-              : "border-slate-700/80 bg-dark-900/60 hover:border-brand-cyan/40 hover:bg-dark-850/70"
-          }`}
-        >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept={acceptString}
-            onChange={handleInputChange}
-            disabled={isLoading}
-            className="hidden"
-          />
+      {/* Drop Zone Box */}
+      <div
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        onClick={() => !isLoading && !selectedFile && inputRef.current?.click()}
+        className={`relative flex min-h-[220px] flex-col items-center justify-center rounded-2xl border-2 border-dashed p-6 text-center transition-all ${
+          isDragging
+            ? "border-brand-cyan bg-brand-cyan/10 scale-[1.005]"
+            : selectedFile
+            ? "border-slate-700 bg-dark-900/90"
+            : "border-slate-800 bg-dark-900/60 hover:border-slate-700 hover:bg-dark-900 cursor-pointer"
+        }`}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept={acceptedExtensions.join(",")}
+          onChange={handleInputChange}
+          className="hidden"
+          disabled={isLoading}
+        />
 
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-cyan/10 text-brand-cyan transition-transform group-hover:scale-105 shadow-glow">
-            <UploadCloud className="h-8 w-8" />
+        {isLoading ? (
+          <div className="flex flex-col items-center gap-3 py-6 text-center">
+            <Loader2 className="h-10 w-10 animate-spin text-brand-cyan" />
+            <p className="text-sm font-semibold text-white">{loadingMessage}</p>
+            <p className="text-xs text-slate-400">Executing neural pipeline...</p>
           </div>
-
-          <h3 className="mt-4 text-base font-semibold text-white">
-            Drag and drop your {mediaType}, or{" "}
-            <span className="text-brand-cyan underline underline-offset-4">browse files</span>
-          </h3>
-
-          <p className="mt-1.5 text-xs text-slate-400">
-            Formats: <strong className="text-slate-300">{acceptedExtensions.join(", ").toUpperCase()}</strong> • Max:{" "}
-            <strong className="text-slate-300">{maxSizeMB} MB</strong>
-          </p>
-
-          <div className="mt-5 inline-flex items-center gap-2 rounded-xl border border-slate-700 bg-dark-800 px-4 py-2 text-xs font-medium text-slate-300">
-            {mediaType === "video" ? (
-              <FileVideo className="h-3.5 w-3.5 text-brand-blue" />
-            ) : (
-              <FileImage className="h-3.5 w-3.5 text-brand-cyan" />
-            )}
-            <span>Select from device</span>
-          </div>
-        </div>
-      ) : (
-        /* Selected File Card */
-        <div className="flex items-center justify-between rounded-xl border border-slate-800 bg-dark-900/90 p-4 shadow-card">
-          <div className="flex items-center gap-3 truncate">
-            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-cyan/10 text-brand-cyan shrink-0">
-              {mediaType === "video" ? (
-                <FileVideo className="h-5 w-5 text-brand-blue" />
-              ) : (
-                <FileImage className="h-5 w-5 text-brand-cyan" />
-              )}
+        ) : selectedFile ? (
+          <div className="flex w-full max-w-md items-center justify-between rounded-xl border border-slate-800 bg-dark-850 p-4">
+            <div className="flex items-center gap-3 overflow-hidden">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-cyan/10 text-brand-cyan">
+                {mediaType === "image" ? (
+                  <FileImage className="h-6 w-6" />
+                ) : (
+                  <FileVideo className="h-6 w-6" />
+                )}
+              </div>
+              <div className="overflow-hidden text-left">
+                <p className="truncate text-sm font-semibold text-white">
+                  {selectedFile.name}
+                </p>
+                <p className="text-xs text-slate-400">
+                  {formatSize(selectedFile.size)}
+                </p>
+              </div>
             </div>
 
-            <div className="truncate">
-              <p className="text-xs font-bold text-white truncate max-w-xs sm:max-w-md">
-                {selectedFile.name}
-              </p>
-              <p className="text-[11px] text-slate-400 mt-0.5">
-                {(selectedFile.size / (1024 * 1024)).toFixed(2)} MB • {selectedFile.type || "binary"}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {!isLoading && (
-              <button
-                type="button"
-                onClick={onClear}
-                title="Remove file"
-                className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-700 bg-dark-800 text-slate-400 hover:text-rose-400 hover:border-rose-500/40"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* Loading Overlay / Progress Message */}
-      {isLoading && (
-        <div className="flex items-center gap-3 rounded-xl border border-brand-cyan/30 bg-brand-cyan/10 p-3 text-xs text-brand-cyan">
-          <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-          <span>{loadingMessage || "Processing file with AI model..."}</span>
-        </div>
-      )}
-
-      {/* Validation Error Banner */}
-      {errorMessage && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3.5 text-xs text-rose-400">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="h-4 w-4 shrink-0" />
-            <span>{errorMessage}</span>
-          </div>
-          {onDismissError && (
             <button
-              onClick={onDismissError}
-              className="text-rose-400 hover:text-white"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (inputRef.current) inputRef.current.value = "";
+                onClear();
+              }}
+              aria-label="Remove selected file"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-800 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-4 w-4" />
             </button>
-          )}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-2 py-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-dark-850 border border-slate-800 text-brand-cyan">
+              <UploadCloud className="h-7 w-7" />
+            </div>
+            <p className="mt-2 text-sm font-bold text-white">
+              Drag & drop {mediaType === "image" ? "an image" : "a video"} here, or{" "}
+              <span className="text-brand-cyan underline decoration-brand-cyan/40">browse</span>
+            </p>
+            <p className="text-xs text-slate-400">
+              Supports {acceptedExtensions.join(", ")} up to {maxSizeMB} MB
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Validation or API Error Banner */}
+      {activeError && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-3 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3.5 text-xs text-rose-300"
+        >
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+            <span>{activeError}</span>
+          </div>
+          <button
+            onClick={() => {
+              setValidationError(null);
+              if (onDismissError) onDismissError();
+            }}
+            aria-label="Dismiss error"
+            className="text-rose-400 hover:text-white"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
         </div>
       )}
     </div>
   );
 }
+

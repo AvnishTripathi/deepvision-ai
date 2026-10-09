@@ -202,7 +202,11 @@ export default function FaceAnalysisCard({
           </div>
           <p className="font-semibold text-white">{sizeLabel}</p>
           <p className="text-[10px] text-slate-500 mt-0.5">
-            {Math.round(face.size.width)} × {Math.round(face.size.height)} px
+            {face.size?.width && face.size?.height
+              ? `${Math.round(face.size.width)} × ${Math.round(face.size.height)} px`
+              : face.bbox?.width && face.bbox?.height
+              ? `${Math.round(face.bbox.width)} × ${Math.round(face.bbox.height)} px`
+              : "—"}
           </p>
         </div>
       </div>
