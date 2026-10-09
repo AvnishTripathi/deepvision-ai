@@ -1,8 +1,8 @@
 """
-DeepVision AI — Development Face Detection Visualization Tool
+DeepVision AI — Development Face Detection Visualization Tool (Step 17)
 Command-line utility for executing real face detection on an input image
 and generating an annotated copy with bounding boxes, confidence scores,
-and facial landmarks.
+facial landmarks, face quality scores, quality classification, and 3D head pose.
 
 Usage:
     python scripts/visualize_detection.py --input path/to/input.jpg --output path/to/output_detected.jpg
@@ -15,6 +15,8 @@ Arguments:
     -d, --device        Compute device override ('cpu' or 'gpu')
     --no-landmarks      Disable landmark rendering
     --no-confidence     Disable confidence text badge rendering
+    --no-quality        Disable quality score and status rendering
+    --no-pose           Disable 3D head pose rendering
 
 Development & Testing Tool:
     Does not persist or cache uploaded user data. Annotations are produced
@@ -41,7 +43,7 @@ from app.ai.visualization.annotator import FaceVisualizer, annotate_image
 
 def main():
     parser = argparse.ArgumentParser(
-        description="DeepVision AI — Face Detection Visualization Development Tool",
+        description="DeepVision AI — Face Detection & Quality Visualization Development Tool",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
@@ -79,6 +81,16 @@ def main():
         action="store_true",
         help="Disable drawing confidence badges",
     )
+    parser.add_argument(
+        "--no-quality",
+        action="store_true",
+        help="Disable drawing face quality score and classification",
+    )
+    parser.add_argument(
+        "--no-pose",
+        action="store_true",
+        help="Disable drawing 3D head pose orientation angles",
+    )
 
     args = parser.parse_args()
 
@@ -97,7 +109,7 @@ def main():
     device = args.device or settings.AI_DEVICE
 
     print("=" * 65)
-    print(" DeepVision AI — Development Visualization Tool")
+    print(" DeepVision AI — Development Visualization Tool (Step 17)")
     print("=" * 65)
     print(f"  Input Image:     {input_path}")
     print(f"  Output Image:    {output_path}")
@@ -131,6 +143,8 @@ def main():
             detector=detector,
             confidence_threshold=conf_thresh,
             show_landmarks=not args.no_landmarks,
+            show_quality=not args.no_quality,
+            show_pose=not args.no_pose,
         )
         total_time_ms = (time.perf_counter() - t0) * 1000.0
 

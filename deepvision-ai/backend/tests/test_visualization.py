@@ -297,3 +297,143 @@ def test_visualize_cli_script_execution(tmp_path):
     # File exists and is valid
     assert out_file.exists()
     assert out_file.stat().st_size > 0
+
+
+# -------------------------------------------------------------------------
+# Test 9: Quality Score, Classification, and Pose Rendering (Step 17)
+# -------------------------------------------------------------------------
+
+def test_visualizer_renders_quality_score_and_classification(sample_face_np):
+    """
+    Verify FaceVisualizer renders face quality score and classification status
+    onto the card overlay as specified in Step 17.
+    """
+    detection_with_quality = {
+        "face_id": 1,
+        "bbox": {"x1": 50, "y1": 80, "x2": 220, "y2": 260},
+        "confidence": 0.97,
+        "quality_score": 91.4,
+        "classification": "excellent",
+        "landmarks": [
+            {"name": "right_eye", "x": 90, "y": 130},
+            {"name": "left_eye", "x": 170, "y": 130},
+            {"name": "nose", "x": 130, "y": 170},
+            {"name": "right_mouth", "x": 100, "y": 210},
+            {"name": "left_mouth", "x": 160, "y": 210},
+        ],
+    }
+
+    annotated = draw_detections(
+        sample_face_np,
+        [detection_with_quality],
+        show_quality=True,
+        show_confidence=True,
+        show_landmarks=True,
+    )
+
+    # Annotated image must differ from input (pixels drawn)
+    assert not np.array_equal(annotated, sample_face_np)
+    assert annotated.shape == sample_face_np.shape
+
+
+def test_visualizer_renders_pose_information_in_card(sample_face_np):
+    """
+    Verify 3D head pose orientation angles (yaw, pitch, roll) are rendered
+    onto the info card overlay and nose orientation pointer.
+    """
+    detection_with_pose = {
+        "face_id": 1,
+        "bbox": {"x1": 50, "y1": 80, "x2": 220, "y2": 260},
+        "confidence": 0.95,
+        "quality_score": 88.0,
+        "classification": "good",
+        "pose": {"yaw": 4.2, "pitch": -2.1, "roll": 1.4},
+        "landmarks": [
+            {"name": "right_eye", "x": 90, "y": 130},
+            {"name": "left_eye", "x": 170, "y": 130},
+            {"name": "nose", "x": 130, "y": 170},
+            {"name": "right_mouth", "x": 100, "y": 210},
+            {"name": "left_mouth", "x": 160, "y": 210},
+        ],
+    }
+
+    annotated = draw_detections(
+        sample_face_np,
+        [detection_with_pose],
+        show_pose=True,
+        show_pose_axes=True,
+    )
+
+    assert not np.array_equal(annotated, sample_face_np)
+
+
+def test_visualizer_renders_detected_face_item_with_full_card(sample_face_np):
+    """
+    Verify FaceVisualizer correctly unpacks DetectedFaceItem schema
+    including quality and pose models.
+    """
+    from app.schemas.ai import DetectedFaceItem, FaceBoundingBox, FaceDetectionQuality
+
+    item = DetectedFaceItem(
+        face_id=1,
+        bbox=FaceBoundingBox(x1=60.0, y1=70.0, x2=200.0, y2=230.0),
+        confidence=0.98,
+        landmarks={
+            "right_eye": {"x": 100.0, "y": 120.0},
+            "left_eye": {"x": 160.0, "y": 120.0},
+            "nose": {"x": 130.0, "y": 160.0},
+            "right_mouth": {"x": 110.0, "y": 190.0},
+            "left_mouth": {"x": 150.0, "y": 190.0},
+        },
+        quality=FaceDetectionQuality(
+            score=91.4,
+            classification="excellent",
+            blur_score=142.5,
+            blur_status="sharp",
+            brightness_score=126.2,
+            brightness_status="acceptable",
+            contrast_score=51.4,
+            contrast_status="acceptable",
+            face_area_ratio=0.08,
+            visibility="excellent",
+        ),
+        pose={"yaw": 3.1, "pitch": -1.2, "roll": 0.5},
+    )
+
+    visualizer = FaceVisualizer(
+        show_quality=True,
+        show_pose=True,
+        show_confidence=True,
+        show_landmarks=True,
+    )
+    annotated = visualizer.annotate(sample_face_np, [item])
+
+    assert annotated.shape == sample_face_np.shape
+    assert not np.array_equal(annotated, sample_face_np)
+
+
+def test_visualizer_status_color_coding(sample_face_np):
+    """
+    Verify status color coding assigns distinct colors to excellent vs poor faces.
+    """
+    visualizer = FaceVisualizer(status_color_coding=True)
+
+    excellent_item = {
+        "face_id": 1,
+        "bbox": {"x1": 50, "y1": 50, "x2": 150, "y2": 150},
+        "quality_score": 95.0,
+        "classification": "excellent",
+    }
+    poor_item = {
+        "face_id": 2,
+        "bbox": {"x1": 50, "y1": 50, "x2": 150, "y2": 150},
+        "quality_score": 25.0,
+        "classification": "poor",
+    }
+
+    ann_excellent = visualizer.annotate(sample_face_np, [excellent_item])
+    ann_poor = visualizer.annotate(sample_face_np, [poor_item])
+
+    # Colors of the rendered annotations must be different
+    assert not np.array_equal(ann_excellent, ann_poor)
+
