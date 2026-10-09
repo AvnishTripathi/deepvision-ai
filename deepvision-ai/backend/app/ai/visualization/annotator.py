@@ -597,7 +597,7 @@ class FaceVisualizer:
                     "roll": float(raw_p.get("roll", 0.0)),
                 }
 
-        # 3. Generic object with bbox attribute
+        # 3. Generic object with bbox attribute (including TrackResult)
         elif hasattr(item, "bbox"):
             b = getattr(item, "bbox")
             if hasattr(b, "x1"):
@@ -605,9 +605,17 @@ class FaceVisualizer:
             elif isinstance(b, (list, tuple)) and len(b) == 4:
                 bbox = (float(b[0]), float(b[1]), float(b[2]), float(b[3]))
             confidence = getattr(item, "confidence", None)
+            if confidence is None:
+                confidence = getattr(item, "detection_confidence", None) or getattr(item, "track_confidence", None)
             landmarks = getattr(item, "landmarks", None)
-            if getattr(item, "face_id", None) is not None:
+            if getattr(item, "track_id", None) is not None:
+                face_id = f"Track #{item.track_id}"
+            elif getattr(item, "face_id", None) is not None:
                 face_id = item.face_id
+
+        # Check track_id on any item if not already set
+        if hasattr(item, "track_id") and getattr(item, "track_id", None) is not None:
+            face_id = f"Track #{item.track_id}"
 
         return bbox, confidence, landmarks, face_id, quality_score, quality_class, pose
 

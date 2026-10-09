@@ -256,6 +256,64 @@ class DeviceNotAvailableError(AIException):
         self.requested_device = requested_device
 
 
+
+# -----------------------------------------------------------------------------
+# Video Processing Exceptions (Step 5)
+# -----------------------------------------------------------------------------
+
+class VideoException(AIException):
+    """Base exception for all video ingestion, decoding, and processing errors."""
+
+    def __init__(
+        self,
+        message: str = "An error occurred during video processing.",
+        detail: Optional[str] = None,
+        error_code: str = "video_error",
+        status_code: int = 400,
+    ):
+        super().__init__(
+            message=message,
+            detail=detail,
+            error_code=error_code,
+            status_code=status_code,
+        )
+
+
+class UnsupportedVideoError(VideoException):
+    """Raised when an uploaded video container format or MIME type is unsupported."""
+
+    def __init__(self, message: str = "Unsupported video format. Supported: MP4, AVI, MOV, MKV, WebM."):
+        super().__init__(message=message, error_code="unsupported_video_format", status_code=400)
+
+
+class CorruptedVideoException(VideoException):
+    """Raised when a video file is corrupt, unreadable, or missing valid video streams."""
+
+    def __init__(self, message: str = "Corrupted or unreadable video file; cannot decode video frames."):
+        super().__init__(message=message, error_code="corrupted_video", status_code=400)
+
+
+class EmptyVideoException(VideoException):
+    """Raised when the video file is empty (0 bytes)."""
+
+    def __init__(self, message: str = "Uploaded video file is empty (0 bytes)."):
+        super().__init__(message=message, error_code="empty_file", status_code=400)
+
+
+class VideoTooLargeException(VideoException):
+    """Raised when a video exceeds maximum file size limits."""
+
+    def __init__(self, message: str = "Video file exceeds maximum allowed size limits."):
+        super().__init__(message=message, error_code="payload_too_large", status_code=413)
+
+
+class VideoDurationExceededException(VideoException):
+    """Raised when a video duration exceeds the maximum permitted limit."""
+
+    def __init__(self, message: str = "Video duration exceeds maximum allowed processing duration."):
+        super().__init__(message=message, error_code="video_duration_exceeded", status_code=400)
+
+
 # -----------------------------------------------------------------------------
 # Storage & Database Exceptions
 # -----------------------------------------------------------------------------
