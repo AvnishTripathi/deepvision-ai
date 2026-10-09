@@ -82,8 +82,23 @@ class FaceAnalysisService:
     - Multi-factor transparent quality scoring and classification
     """
 
-    def __init__(self, min_sharpness: float = 50.0):
-        self.min_sharpness = min_sharpness
+    def __init__(
+        self,
+        min_sharpness: Optional[float] = None,
+        enable_landmarks: Optional[bool] = None,
+        enable_quality_analysis: Optional[bool] = None,
+        enable_pose_analysis: Optional[bool] = None,
+        brightness_min: Optional[float] = None,
+        brightness_max: Optional[float] = None,
+        quality_threshold: Optional[float] = None,
+    ):
+        self.min_sharpness = min_sharpness if min_sharpness is not None else getattr(settings, "FACE_BLUR_THRESHOLD", 50.0)
+        self.enable_landmarks = enable_landmarks if enable_landmarks is not None else getattr(settings, "AI_ENABLE_LANDMARKS", True)
+        self.enable_quality_analysis = enable_quality_analysis if enable_quality_analysis is not None else getattr(settings, "AI_ENABLE_QUALITY_ANALYSIS", True)
+        self.enable_pose_analysis = enable_pose_analysis if enable_pose_analysis is not None else getattr(settings, "AI_ENABLE_POSE_ANALYSIS", True)
+        self.brightness_min = brightness_min if brightness_min is not None else getattr(settings, "FACE_BRIGHTNESS_MIN", 60.0)
+        self.brightness_max = brightness_max if brightness_max is not None else getattr(settings, "FACE_BRIGHTNESS_MAX", 200.0)
+        self.quality_threshold = quality_threshold if quality_threshold is not None else getattr(settings, "FACE_QUALITY_THRESHOLD", 45.0)
         self.last_timing: Optional[AnalysisPerformanceBreakdown] = None
 
     # -------------------------------------------------------------------------
@@ -127,13 +142,17 @@ class FaceAnalysisService:
     def analyze_brightness(
         self,
         face_crop: np.ndarray,
+        min_acceptable: Optional[float] = None,
+        max_acceptable: Optional[float] = None,
     ) -> Tuple[float, str, IlluminationMetrics]:
         """
-        Calculates mean photopic luminance.
+        Calculates mean photopic luminance against configurable min/max bounds.
         Returns:
             Tuple of (brightness_score, brightness_status_str, IlluminationMetrics).
         """
-        illum = compute_illumination_metrics(face_crop)
+        b_min = min_acceptable if min_acceptable is not None else self.brightness_min
+        b_max = max_acceptable if max_acceptable is not None else self.brightness_max
+        illum = compute_illumination_metrics(face_crop, min_acceptable=b_min, max_acceptable=b_max)
         brightness_score = round(illum.brightness, 1)
         brightness_status = illum.brightness_status.value
         return brightness_score, brightness_status, illum
@@ -232,89 +251,96 @@ class FaceAnalysisService:
         bbox = detection.bbox
 
         # 1. Landmarks
-        t_lm = time.perf_counter() if stage_timing is not None else 0.0
-        lms_dict, lms_list = self.extract_and_validate_landmarks(detection.landmarks, image_shape)
-        if stage_timing is not None:
-            stage_timing["landmark"] += (time.perf_counter() - t_lm)
+        lms_dict: Dict[str, LandmarkCoordinate] = {}
+        lms_list: List[LandmarkPoint] = []
+        if self.enable_landmarks:
+            t_lm = time.perf_counter() if stage_timing is not None else 0.0
+            lms_dict, lms_list = self.extract_and_validate_landmarks(detection.landmarks, image_shape)
+            if stage_timing is not None:
+                stage_timing["landmark"] += (time.perf_counter() - t_lm)
 
         # 2. Quality & Optics (Size, Blur, Brightness, Contrast, Quality Score, Visibility)
-        t_qual = time.perf_counter() if stage_timing is not None else 0.0
+        quality_obj = None
+        if self.enable_quality_analysis:
+            t_qual = time.perf_counter() if stage_timing is not None else 0.0
 
-        # Extract safe face crop
-        x1_int = max(0, int(round(bbox.x1)))
-        y1_int = max(0, int(round(bbox.y1)))
-        x2_int = min(img_w, int(round(bbox.x2)))
-        y2_int = min(img_h, int(round(bbox.y2)))
-        face_crop = (
-            image_rgb[y1_int:y2_int, x1_int:x2_int]
-            if x2_int > x1_int and y2_int > y1_int
-            else np.empty((0, 0, 3), dtype=np.uint8)
-        )
+            # Extract safe face crop
+            x1_int = max(0, int(round(bbox.x1)))
+            y1_int = max(0, int(round(bbox.y1)))
+            x2_int = min(img_w, int(round(bbox.x2)))
+            y2_int = min(img_h, int(round(bbox.y2)))
+            face_crop = (
+                image_rgb[y1_int:y2_int, x1_int:x2_int]
+                if x2_int > x1_int and y2_int > y1_int
+                else np.empty((0, 0, 3), dtype=np.uint8)
+            )
 
-        # Size metrics
-        size_metrics = self.analyze_size(bbox, image_shape)
-        face_area_ratio = round(size_metrics.face_area_ratio, 4)
+            # Size metrics
+            size_metrics = self.analyze_size(bbox, image_shape)
+            face_area_ratio = round(size_metrics.face_area_ratio, 4)
 
-        # Blur & sharpness
-        blur_score, blur_status, clarity = self.analyze_blur(face_crop)
+            # Blur & sharpness
+            blur_score, blur_status, clarity = self.analyze_blur(face_crop)
 
-        # Brightness & exposure
-        brightness_score, brightness_status, illum = self.analyze_brightness(face_crop)
+            # Brightness & exposure
+            brightness_score, brightness_status, illum = self.analyze_brightness(face_crop)
 
-        # Contrast & dynamic range
-        contrast_score, contrast_status = self.analyze_contrast(illum)
+            # Contrast & dynamic range
+            contrast_score, contrast_status = self.analyze_contrast(illum)
 
-        # Quality scoring & classification
-        q_score_100, q_classification, factors, grade = self.calculate_quality(
-            face_crop=face_crop,
-            bbox=bbox,
-            image_shape=image_shape,
-            clarity_metrics=clarity,
-            illumination_metrics=illum,
-            size_metrics=size_metrics,
-            landmarks_list=lms_list,
-            detection_confidence=detection.confidence,
-        )
+            # Quality scoring & classification
+            q_score_100, q_classification, factors, grade = self.calculate_quality(
+                face_crop=face_crop,
+                bbox=bbox,
+                image_shape=image_shape,
+                clarity_metrics=clarity,
+                illumination_metrics=illum,
+                size_metrics=size_metrics,
+                landmarks_list=lms_list,
+                detection_confidence=detection.confidence,
+            )
 
-        # Visibility assessment
-        vis_assessment = calculate_face_visibility(
-            face_crop_rgb=face_crop,
-            bbox=bbox,
-            image_shape=image_shape,
-            size_metrics=size_metrics,
-            clarity_metrics=clarity,
-            illumination_metrics=illum,
-            landmarks=lms_list,
-            detection_confidence=detection.confidence,
-        )
-        visibility_val = vis_assessment.visibility.value
+            # Visibility assessment
+            vis_assessment = calculate_face_visibility(
+                face_crop_rgb=face_crop,
+                bbox=bbox,
+                image_shape=image_shape,
+                size_metrics=size_metrics,
+                clarity_metrics=clarity,
+                illumination_metrics=illum,
+                landmarks=lms_list,
+                detection_confidence=detection.confidence,
+            )
+            visibility_val = vis_assessment.visibility.value
 
-        # Build FaceDetectionQuality
-        quality_obj = FaceDetectionQuality(
-            score=round(q_score_100, 1),
-            classification=q_classification,
-            blur_score=blur_score,
-            blur_status=blur_status,
-            brightness_score=brightness_score,
-            brightness_status=brightness_status,
-            contrast_score=contrast_score,
-            contrast_status=contrast_status,
-            face_area_ratio=face_area_ratio,
-            visibility=visibility_val,
-            overall_quality=round(q_score_100 / 100.0, 3),
-            sharpness=blur_score,
-            brightness=brightness_score,
-            contrast=contrast_score,
-            is_usable=q_score_100 >= 30.0,
-        )
-        if stage_timing is not None:
-            stage_timing["quality"] += (time.perf_counter() - t_qual)
+            # Build FaceDetectionQuality with configurable quality threshold
+            quality_obj = FaceDetectionQuality(
+                score=round(q_score_100, 1),
+                classification=q_classification,
+                blur_score=blur_score,
+                blur_status=blur_status,
+                brightness_score=brightness_score,
+                brightness_status=brightness_status,
+                contrast_score=contrast_score,
+                contrast_status=contrast_status,
+                face_area_ratio=face_area_ratio,
+                visibility=visibility_val,
+                overall_quality=round(q_score_100 / 100.0, 3),
+                sharpness=blur_score,
+                brightness=brightness_score,
+                contrast=contrast_score,
+                is_usable=q_score_100 >= self.quality_threshold,
+            )
+            if stage_timing is not None:
+                stage_timing["quality"] += (time.perf_counter() - t_qual)
 
         # 3. 3D Head pose
-        t_pose = time.perf_counter() if stage_timing is not None else 0.0
-        pose_dict, _ = self.estimate_pose(lms_list, image_shape)
-        if stage_timing is not None:
-            stage_timing["pose"] += (time.perf_counter() - t_pose)
+        pose_dict = None
+        if self.enable_pose_analysis and self.enable_landmarks and lms_list:
+            t_pose = time.perf_counter() if stage_timing is not None else 0.0
+            pose_dict, _ = self.estimate_pose(lms_list, image_shape)
+            if stage_timing is not None:
+                stage_timing["pose"] += (time.perf_counter() - t_pose)
 
         return DetectedFaceItem(
             face_id=detection.face_id,
@@ -444,7 +470,15 @@ class FaceAnalysisService:
         start_total = time.perf_counter()
         stage_timing = {"landmark": 0.0, "quality": 0.0, "pose": 0.0}
         from app.ai.analysis.quality import FaceAnalyzer
-        analyzer = FaceAnalyzer(min_sharpness=self.min_sharpness)
+        analyzer = FaceAnalyzer(
+            min_sharpness=self.min_sharpness,
+            enable_landmarks=self.enable_landmarks,
+            enable_quality_analysis=self.enable_quality_analysis,
+            enable_pose_analysis=self.enable_pose_analysis,
+            brightness_min=self.brightness_min,
+            brightness_max=self.brightness_max,
+            quality_threshold=self.quality_threshold,
+        )
         analyses = analyzer.analyze_detections(image_rgb, detections, stage_timing=stage_timing)
         total_analysis_time_ms = round((time.perf_counter() - start_total) * 1000.0, 2)
 

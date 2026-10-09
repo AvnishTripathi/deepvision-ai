@@ -7,7 +7,7 @@ Configuration is loaded from environment variables and .env files.
 import os
 from typing import List, Optional, Any, Union
 import json
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -44,6 +44,17 @@ class Settings(BaseSettings):
     AI_MAX_IMAGE_DIMENSION: int = 4096
     AI_ENABLE_GPU: bool = False
     AI_MODEL_PATH: Optional[str] = None
+
+    # Pipeline Modular Feature Toggles (Step 19)
+    AI_ENABLE_LANDMARKS: bool = True
+    AI_ENABLE_QUALITY_ANALYSIS: bool = True
+    AI_ENABLE_POSE_ANALYSIS: bool = True
+
+    # Face Quality & Optics Configurable Thresholds (Step 19)
+    FACE_BLUR_THRESHOLD: float = 50.0
+    FACE_BRIGHTNESS_MIN: float = 60.0
+    FACE_BRIGHTNESS_MAX: float = 200.0
+    FACE_QUALITY_THRESHOLD: float = 45.0
 
     # Face Blur & Sharpness Thresholds (Step 7)
     AI_BLUR_SHARP_THRESHOLD: float = 100.0
@@ -154,15 +165,77 @@ class Settings(BaseSettings):
             raise ValueError(f"Quality threshold must be between 0.0 and 100.0, got {v}")
         return float(v)
 
-    @field_validator("AI_ENABLE_GPU", mode="before")
+    @field_validator(
+        "AI_ENABLE_LANDMARKS",
+        "AI_ENABLE_QUALITY_ANALYSIS",
+        "AI_ENABLE_POSE_ANALYSIS",
+        "AI_ENABLE_GPU",
+        mode="before",
+    )
     @classmethod
-    def parse_enable_gpu(cls, v: Any) -> bool:
-        """Parses boolean strings for GPU enablement flag."""
+    def parse_boolean_flags(cls, v: Any) -> bool:
+        """Parses boolean strings, integers, or literals for feature flags."""
         if isinstance(v, bool):
             return v
+        if isinstance(v, (int, float)):
+            return bool(v)
         if isinstance(v, str):
-            return v.lower() in ("true", "1", "t", "yes", "y", "enable", "enabled")
+            return v.lower().strip() in ("true", "1", "t", "yes", "y", "enable", "enabled", "on")
         return bool(v)
+
+    @field_validator("FACE_BLUR_THRESHOLD")
+    @classmethod
+    def validate_face_blur_threshold(cls, v: float) -> float:
+        """Ensures FACE_BLUR_THRESHOLD is non-negative."""
+        if float(v) < 0.0:
+            raise ValueError(f"FACE_BLUR_THRESHOLD must be non-negative, got {v}")
+        return float(v)
+
+    @field_validator("FACE_BRIGHTNESS_MIN", "FACE_BRIGHTNESS_MAX")
+    @classmethod
+    def validate_face_brightness_bounds(cls, v: float) -> float:
+        """Ensures brightness thresholds fall within 8-bit luminance bounds [0.0, 255.0]."""
+        if not (0.0 <= float(v) <= 255.0):
+            raise ValueError(f"Brightness threshold must be in range [0.0, 255.0], got {v}")
+        return float(v)
+
+    @field_validator("FACE_QUALITY_THRESHOLD")
+    @classmethod
+    def validate_face_quality_threshold(cls, v: float) -> float:
+        """Ensures FACE_QUALITY_THRESHOLD falls within score bounds [0.0, 100.0]."""
+        if not (0.0 <= float(v) <= 100.0):
+            raise ValueError(f"FACE_QUALITY_THRESHOLD must be between 0.0 and 100.0, got {v}")
+        return float(v)
+
+    @model_validator(mode="after")
+    def validate_brightness_order(self) -> "Settings":
+        """Ensures FACE_BRIGHTNESS_MIN is strictly less than FACE_BRIGHTNESS_MAX."""
+        if self.FACE_BRIGHTNESS_MIN >= self.FACE_BRIGHTNESS_MAX:
+            raise ValueError(
+                f"FACE_BRIGHTNESS_MIN ({self.FACE_BRIGHTNESS_MIN}) must be strictly less than "
+                f"FACE_BRIGHTNESS_MAX ({self.FACE_BRIGHTNESS_MAX})"
+            )
+        return self
+
+    def get_public_ai_config(self) -> dict:
+        """
+        Returns safe, non-sensitive AI pipeline configuration.
+        Guarantees zero exposure of secrets (SECRET_KEY, DB passwords, tokens).
+        """
+        return {
+            "model_name": self.AI_MODEL_NAME,
+            "model_version": self.AI_MODEL_VERSION,
+            "device": self.AI_DEVICE,
+            "confidence_threshold": self.AI_CONFIDENCE_THRESHOLD,
+            "nms_threshold": self.AI_NMS_THRESHOLD,
+            "enable_landmarks": self.AI_ENABLE_LANDMARKS,
+            "enable_quality_analysis": self.AI_ENABLE_QUALITY_ANALYSIS,
+            "enable_pose_analysis": self.AI_ENABLE_POSE_ANALYSIS,
+            "face_blur_threshold": self.FACE_BLUR_THRESHOLD,
+            "face_brightness_min": self.FACE_BRIGHTNESS_MIN,
+            "face_brightness_max": self.FACE_BRIGHTNESS_MAX,
+            "face_quality_threshold": self.FACE_QUALITY_THRESHOLD,
+        }
 
     @property
     def ai_max_image_bytes(self) -> int:

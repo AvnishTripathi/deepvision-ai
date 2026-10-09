@@ -302,3 +302,4 @@ async def test_analyze_endpoint_returns_separate_stage_latencies(valid_test_imag
             assert timing["total_analysis_time_ms"] == data["total_analysis_time_ms"]
     finally:
         app.dependency_overrides.clear()
+

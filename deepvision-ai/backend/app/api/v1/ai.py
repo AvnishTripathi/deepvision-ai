@@ -467,5 +467,6 @@ def get_ai_status(ai_service: AIService = Depends(get_ai_service)):
         "confidence_threshold": settings.AI_CONFIDENCE_THRESHOLD,
         "max_image_size_mb": settings.AI_MAX_IMAGE_SIZE_MB,
         "max_image_dimension": settings.AI_MAX_IMAGE_DIMENSION,
+        "config": settings.get_public_ai_config(),
         "telemetry": ai_service.get_service_status(),
     }

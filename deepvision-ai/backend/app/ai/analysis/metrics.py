@@ -128,7 +128,7 @@ def estimate_face_blur(
     effective_slight_thresh = (
         slightly_blurred_threshold
         if slightly_blurred_threshold is not None
-        else getattr(settings, "AI_BLUR_SLIGHTLY_BLURRED_THRESHOLD", 50.0)
+        else getattr(settings, "FACE_BLUR_THRESHOLD", getattr(settings, "AI_BLUR_SLIGHTLY_BLURRED_THRESHOLD", 50.0))
     )
 
     if face_crop_rgb.size == 0 or face_crop_rgb.shape[0] < 4 or face_crop_rgb.shape[1] < 4:
@@ -217,12 +217,12 @@ def calculate_face_brightness(
     effective_min = (
         min_acceptable
         if min_acceptable is not None
-        else getattr(settings, "AI_BRIGHTNESS_MIN_ACCEPTABLE", 60.0)
+        else getattr(settings, "FACE_BRIGHTNESS_MIN", getattr(settings, "AI_BRIGHTNESS_MIN_ACCEPTABLE", 60.0))
     )
     effective_max = (
         max_acceptable
         if max_acceptable is not None
-        else getattr(settings, "AI_BRIGHTNESS_MAX_ACCEPTABLE", 200.0)
+        else getattr(settings, "FACE_BRIGHTNESS_MAX", getattr(settings, "AI_BRIGHTNESS_MAX_ACCEPTABLE", 200.0))
     )
 
     if face_crop_rgb.size == 0 or face_crop_rgb.shape[0] < 4 or face_crop_rgb.shape[1] < 4:

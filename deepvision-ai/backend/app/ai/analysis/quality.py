@@ -183,7 +183,7 @@ def classify_face_quality(
     th_acceptable = (
         acceptable_threshold
         if acceptable_threshold is not None
-        else getattr(settings, "AI_QUALITY_ACCEPTABLE_THRESHOLD", 45.0)
+        else getattr(settings, "FACE_QUALITY_THRESHOLD", getattr(settings, "AI_QUALITY_ACCEPTABLE_THRESHOLD", 45.0))
     )
 
     # Scale thresholds if provided in normalized 0.0 - 1.0 format
@@ -383,8 +383,14 @@ def analyze_face_comprehensive(
     confidence: float = 0.95,
     landmarks: Optional[List[LandmarkPoint]] = None,
     face_id: Optional[Union[str, int]] = None,
-    min_sharpness: float = 50.0,
+    min_sharpness: Optional[float] = None,
     stage_timing: Optional[Dict[str, float]] = None,
+    enable_landmarks: Optional[bool] = None,
+    enable_quality_analysis: Optional[bool] = None,
+    enable_pose_analysis: Optional[bool] = None,
+    brightness_min: Optional[float] = None,
+    brightness_max: Optional[float] = None,
+    quality_threshold: Optional[float] = None,
 ) -> StructuredFaceAnalysis:
     """
     Executes deep multi-dimensional face analytics:
@@ -398,10 +404,18 @@ def analyze_face_comprehensive(
     """
     img_h, img_w = image_shape
 
+    eff_min_sharpness = min_sharpness if min_sharpness is not None else getattr(settings, "FACE_BLUR_THRESHOLD", 50.0)
+    eff_enable_landmarks = enable_landmarks if enable_landmarks is not None else getattr(settings, "AI_ENABLE_LANDMARKS", True)
+    eff_enable_quality = enable_quality_analysis if enable_quality_analysis is not None else getattr(settings, "AI_ENABLE_QUALITY_ANALYSIS", True)
+    eff_enable_pose = enable_pose_analysis if enable_pose_analysis is not None else getattr(settings, "AI_ENABLE_POSE_ANALYSIS", True)
+    eff_b_min = brightness_min if brightness_min is not None else getattr(settings, "FACE_BRIGHTNESS_MIN", 60.0)
+    eff_b_max = brightness_max if brightness_max is not None else getattr(settings, "FACE_BRIGHTNESS_MAX", 200.0)
+    eff_q_thresh = quality_threshold if quality_threshold is not None else getattr(settings, "FACE_QUALITY_THRESHOLD", 45.0)
+
     # 1. Landmark & Symmetry Metrics
     t_lm = time.perf_counter() if stage_timing is not None else 0.0
     validated_landmarks: Optional[List[LandmarkPoint]] = None
-    if landmarks:
+    if eff_enable_landmarks and landmarks:
         try:
             validated_landmarks = validate_and_clip_landmarks_list(
                 landmarks=landmarks,
@@ -413,14 +427,14 @@ def analyze_face_comprehensive(
             validated_landmarks = None
 
     lm_metrics: Optional[FacialLandmarkMetrics] = None
-    if validated_landmarks and len(validated_landmarks) >= 5:
+    if eff_enable_landmarks and validated_landmarks and len(validated_landmarks) >= 5:
         try:
             lm_metrics = compute_landmark_metrics(validated_landmarks)
         except Exception as lm_exc:
             logger.warning("Failed computing landmark metrics for face %s: %s", face_id, lm_exc)
             lm_metrics = None
 
-    if stage_timing is not None:
+    if stage_timing is not None and eff_enable_landmarks:
         stage_timing["landmark"] += (time.perf_counter() - t_lm)
 
     ipd = lm_metrics.interpupillary_distance_px if lm_metrics else None
@@ -428,21 +442,21 @@ def analyze_face_comprehensive(
     # 2. 3D Head Pose & Orientation
     t_pose = time.perf_counter() if stage_timing is not None else 0.0
     pose: Optional[HeadPoseEstimation] = None
-    if validated_landmarks and len(validated_landmarks) >= 5:
+    if eff_enable_pose and eff_enable_landmarks and validated_landmarks and len(validated_landmarks) >= 5:
         try:
             pose = estimate_head_pose(validated_landmarks, image_shape)
         except Exception as pose_exc:
             logger.warning("Failed estimating head pose for face %s: %s", face_id, pose_exc)
             pose = None
 
-    if stage_timing is not None:
+    if stage_timing is not None and eff_enable_pose and eff_enable_landmarks:
         stage_timing["pose"] += (time.perf_counter() - t_pose)
 
     # 3. Quality, Clarity & Illumination Analytics
     t_qual = time.perf_counter() if stage_timing is not None else 0.0
     size = compute_face_size_metrics(bbox, image_shape, ipd=ipd)
-    clarity = compute_clarity_metrics(face_crop_rgb, min_sharpness_threshold=min_sharpness)
-    illum = compute_illumination_metrics(face_crop_rgb)
+    clarity = compute_clarity_metrics(face_crop_rgb, min_sharpness_threshold=eff_min_sharpness)
+    illum = compute_illumination_metrics(face_crop_rgb, min_acceptable=eff_b_min, max_acceptable=eff_b_max)
 
     # 4. Composite Transparent Quality Scoring (0 - 100) (Step 11)
     quality_score_100, quality_factors, grade = calculate_face_quality_score(
@@ -460,11 +474,12 @@ def analyze_face_comprehensive(
 
     # Usability determination
     is_usable = (
-        clarity.sharpness >= min_sharpness and
-        40.0 <= illum.brightness <= 215.0 and
+        clarity.sharpness >= eff_min_sharpness and
+        eff_b_min <= illum.brightness <= eff_b_max and
         illum.contrast >= 15.0 and
         size.is_sufficient_size and
-        (pose.frontality_score >= 0.40 if pose else True)
+        (pose.frontality_score >= 0.40 if pose else True) and
+        quality_score_100 >= eff_q_thresh
     )
 
     # 5. Face Visibility Assessment (Step 10)
@@ -480,7 +495,7 @@ def analyze_face_comprehensive(
     )
 
     # 6. Face Quality Classification (Step 13)
-    classification = classify_face_quality(quality_score_100)
+    classification = classify_face_quality(quality_score_100, acceptable_threshold=eff_q_thresh)
 
     quality_score = ComprehensiveFaceQuality(
         quality_score=quality_score_100,
@@ -529,8 +544,23 @@ class FaceAnalyzer:
     Never crashes the request if one face has corrupted or missing landmarks/geometry.
     """
 
-    def __init__(self, min_sharpness: float = 50.0):
-        self.min_sharpness = min_sharpness
+    def __init__(
+        self,
+        min_sharpness: Optional[float] = None,
+        enable_landmarks: Optional[bool] = None,
+        enable_quality_analysis: Optional[bool] = None,
+        enable_pose_analysis: Optional[bool] = None,
+        brightness_min: Optional[float] = None,
+        brightness_max: Optional[float] = None,
+        quality_threshold: Optional[float] = None,
+    ):
+        self.min_sharpness = min_sharpness if min_sharpness is not None else getattr(settings, "FACE_BLUR_THRESHOLD", 50.0)
+        self.enable_landmarks = enable_landmarks if enable_landmarks is not None else getattr(settings, "AI_ENABLE_LANDMARKS", True)
+        self.enable_quality_analysis = enable_quality_analysis if enable_quality_analysis is not None else getattr(settings, "AI_ENABLE_QUALITY_ANALYSIS", True)
+        self.enable_pose_analysis = enable_pose_analysis if enable_pose_analysis is not None else getattr(settings, "AI_ENABLE_POSE_ANALYSIS", True)
+        self.brightness_min = brightness_min if brightness_min is not None else getattr(settings, "FACE_BRIGHTNESS_MIN", 60.0)
+        self.brightness_max = brightness_max if brightness_max is not None else getattr(settings, "FACE_BRIGHTNESS_MAX", 200.0)
+        self.quality_threshold = quality_threshold if quality_threshold is not None else getattr(settings, "FACE_QUALITY_THRESHOLD", 45.0)
 
     def analyze_detections(
         self,
@@ -566,6 +596,12 @@ class FaceAnalyzer:
                     face_id=d.face_id,
                     min_sharpness=self.min_sharpness,
                     stage_timing=stage_timing,
+                    enable_landmarks=self.enable_landmarks,
+                    enable_quality_analysis=self.enable_quality_analysis,
+                    enable_pose_analysis=self.enable_pose_analysis,
+                    brightness_min=self.brightness_min,
+                    brightness_max=self.brightness_max,
+                    quality_threshold=self.quality_threshold,
                 )
                 analyses.append(analysis)
             except Exception as exc:
