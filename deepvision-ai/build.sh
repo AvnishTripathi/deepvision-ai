@@ -3,16 +3,30 @@ set -e
 
 echo "=== DeepVision AI — Unified Single Service Build ==="
 
-# 1. Install backend Python dependencies
-echo "Installing Python backend dependencies..."
-pip install --upgrade pip
-pip install -r backend/requirements.txt
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -d "$SCRIPT_DIR/frontend" ]; then
+  REPO_ROOT="$SCRIPT_DIR"
+elif [ -d "$SCRIPT_DIR/../frontend" ]; then
+  REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+else
+  REPO_ROOT="$SCRIPT_DIR"
+fi
 
-# 2. Install frontend Node dependencies and build Next.js
+echo "Repository root detected at: $REPO_ROOT"
+
+# 1. Install Python dependencies
+echo "Installing Python dependencies..."
+pip install --upgrade pip
+if [ -f "$REPO_ROOT/backend/requirements.txt" ]; then
+  pip install -r "$REPO_ROOT/backend/requirements.txt"
+elif [ -f "$REPO_ROOT/requirements.txt" ]; then
+  pip install -r "$REPO_ROOT/requirements.txt"
+fi
+
+# 2. Build Next.js frontend
 echo "Installing frontend dependencies and building Next.js..."
-cd frontend
+cd "$REPO_ROOT/frontend"
 npm install
 npm run build
-cd ..
 
 echo "=== Build Complete ==="
