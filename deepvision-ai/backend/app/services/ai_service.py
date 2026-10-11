@@ -122,7 +122,7 @@ class AIService:
         preprocessor = getattr(self._detector, "preprocessor", None)
         if preprocessor is not None and hasattr(preprocessor, "load_image"):
             return preprocessor.load_image(image_input)
-        from app.ai.detection.preprocessor import ImagePreprocessor
+        from app.ai.detection.preprocessing import ImagePreprocessor
         return ImagePreprocessor().load_image(image_input)
 
     def detect_and_analyze_faces(

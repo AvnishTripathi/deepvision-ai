@@ -1,226 +1,392 @@
 # DeepVision AI
 
-**Advanced AI-Powered Face Detection, Video Analysis & Real-Time Vision Platform**
+> **See. Detect. Track. Analyze. Understand.**
+
+A production-grade, privacy-first computer vision and visual intelligence platform designed for high-throughput face detection, facial landmark localization, optical quality evaluation, and real-time multi-face video tracking.
 
 ---
 
-## 📌 Project Description
+## Overview
 
-**DeepVision AI** is an enterprise-ready, high-performance computer vision system designed for intelligent facial detection, multi-face tracking, media stream analytics, and authorized vision intelligence. The platform is structured around clean modular architecture, async processing pipelines, and cloud-ready infrastructure.
+**DeepVision AI** is an enterprise-ready computer vision system engineered around modular services, asynchronous task queues, and privacy-by-design data handling. Unlike monolithic computer-vision scripts, DeepVision AI cleanly isolates web orchestration, database persistence, distributed message brokers, background workers, and neural network inference engines.
 
----
-
-## 🎯 Vision
-
-DeepVision AI is being developed as a **modular AI computer-vision platform**. 
-
-Rather than a monolithic computer-vision script, the architecture separates core concerns:
-- **Presentation Layer**: Responsive Next.js frontend with real-time streaming capabilities.
-- **API & Orchestration**: Asynchronous FastAPI service handling validated requests, authentication, and dispatching.
-- **Database & Persistence**: Enterprise PostgreSQL persistence layer powered by SQLAlchemy 2.0.
-- **Cache & Message Broker**: Redis connection foundation for job scheduling, stream chunking, and caching.
-- **AI Processing Engines**: Decoupled detection, tracking, analysis, and inference engines that can be upgraded or scaled independently.
+The platform provides millisecond-level image analysis and streaming video processing while strictly enforcing privacy boundaries: **zero facial recognition, zero biometric identity matching, zero facial embedding storage, and zero mass surveillance mechanisms**.
 
 ---
 
-## 🧠 AI Engine
+## Features
 
-DeepVision AI features a decoupled, production-grade computer vision pipeline. The architecture ensures that web controllers, model interfaces, hardware inference sessions, and neural network weights remain strictly isolated.
+### Implemented Capabilities
+* **Face Detection**: Fast multi-scale face localization powered by lightweight YuNet CNN weights (`face_detection_yunet_2023mar.onnx`, 232 KB) running on CPU (OpenCV SIMD / ONNX Runtime) or GPU (CUDA / DirectML).
+* **Facial Landmarks**: 5-point canonical facial landmarks (right eye, left eye, nose tip, right mouth corner, left mouth corner) with sub-pixel regression.
+* **Optical Quality Analytics**: Granular face diagnostics including Laplacian blur variance, photopic luminance distribution, contrast, face scale, and 3D head pose estimation (Yaw, Pitch, Roll Euler angles via Perspective-n-Point).
+* **0–100 Face Quality Score**: Weighted composite quality score categorizing face crops into `EXCELLENT`, `GOOD`, `ACCEPTABLE`, `POOR`, or `UNUSABLE`.
+* **Multi-Face Video Tracking**: ByteTrack multi-object tracking associating bounding boxes across time with 8D constant-velocity Kalman filtering and two-stage BYTE data association.
+* **Temporary Track IDs**: Ephemeral, session-scoped integer IDs (`Track #1`, `Track #2`) denoting spatio-temporal continuity. Track IDs are completely discarded when a video ends and cannot be linked across videos.
+* **Streaming Video Pipeline**: Sequential frame extraction processing long videos without accumulating frames in system memory.
+* **Asynchronous Video Jobs**: Redis-backed FIFO queue (`deepvision:queue:video_jobs`) with standalone worker daemons (`video_worker.py`) and automatic in-memory fallback.
+* **Annotated Video Rendering**: Video composition rendering HUD cards with Track ID, confidence, optical scores, and session metrics into downloadable MP4 video containers.
+* **Modern Next.js Frontend**: Interactive AI vision workspace featuring canvas overlays, dark/light themes, drag-and-drop media ingestion, job status telemetry, and keyboard accessibility.
+* **Defense-in-Depth Security**: Strict MIME validation, binary magic-byte stream probing, sliding-window rate limiting, path traversal defense, and automatic secret/token redaction.
 
-### Inference Pipeline
+### Planned Capabilities (Not Implemented)
+* **WebSocket Live Camera Streaming**: Real-time webcam frame-by-frame streaming over WebSocket is planned for future phases.
+* **Anti-Spoofing & Liveness Detection**: 2D/3D presentation attack and silicon mask anti-spoofing verification models.
+* **Cloud Autoscaling Workers**: KEDA-driven worker autoscaling on Kubernetes with dynamic GPU node provisioning.
+* **Edge Device Acceleration**: INT8 quantization and TensorRT engine compilation for edge hardware (NVIDIA Jetson / Raspberry Pi).
 
-Every detection request executes through a deterministic 9-stage processing flow:
+---
+
+## Architecture
+
+DeepVision AI utilizes a decoupled asynchronous processing architecture:
 
 ```text
-Image Upload
-     ↓
-Validation
-     ↓
-Preprocessing
-     ↓
-AI Inference
-     ↓
-Face Detection
-     ↓
-Confidence Filtering
-     ↓
-NMS / Postprocessing
-     ↓
-Bounding Box Validation
-     ↓
-Structured JSON Result
+                     ┌──────────────────┐
+                     │     Browser      │
+                     │ Next.js Frontend │
+                     └────────┬─────────┘
+                              │ HTTP / REST
+                              ▼
+                     ┌──────────────────┐
+                     │    FastAPI API   │
+                     └──────┬─────┬─────┘
+                            │     │
+                    ┌───────┘     └────────┐
+                    ▼                      ▼
+              ┌──────────┐          ┌──────────┐
+              │PostgreSQL│          │  Redis   │
+              └──────────┘          └────┬─────┘
+                                         │ Task Queue
+                                         ▼
+                                  ┌──────────────┐
+                                  │ Video Worker │
+                                  └──────┬───────┘
+                                         │ Execution
+                                         ▼
+                                ┌─────────────────┐
+                                │ AI/CV Pipeline  │
+                                │ Detection       │
+                                │ Landmarks       │
+                                │ Quality         │
+                                │ Tracking        │
+                                └────────┬────────┘
+                                         │ Artifacts
+                                         ▼
+                                  ┌────────────┐
+                                  │  Storage   │
+                                  └────────────┘
 ```
 
-### Pipeline Stages Explained
-
-1. **Image Upload**: The image payload is received via HTTP `POST /api/v1/ai/detect` (`multipart/form-data`) or in-memory buffer. Processed 100% in volatile memory without permanent disk persistence.
-2. **Validation**: Enforces multi-layer defense-in-depth: MIME whitelist (`image/jpeg`, `image/png`, `image/webp`, `image/bmp`), binary magic number verification, payload size cap (10 MB), maximum dimensions ($4096 \times 4096\text{px}$), and untrusted filename sanitization.
-3. **Preprocessing**: The raw image is decoded into an RGB uint8 array and resized using symmetric aspect-ratio letterboxing to prevent distortion. Formats such as Grayscale and RGBA are cleanly converted to 3-channel RGB.
-4. **AI Inference**: The active runtime (OpenCV FaceDetectorYN / YuNet C++ SIMD backend or ONNX Runtime) evaluates the model using hardware acceleration (CUDA, DirectML) with an automatic zero-crash fallback to CPU execution.
-5. **Face Detection**: Multi-scale feature extraction across strides 8, 16, and 32 yields candidate face proposals, raw bounding boxes, and 5 facial landmark keypoints.
-6. **Confidence Filtering**: Prunes candidate proposals whose confidence scores fall below the threshold (global `AI_CONFIDENCE_THRESHOLD` or per-request override `?confidence_threshold=0.75`).
-7. **NMS / Postprocessing**: Applies Non-Maximum Suppression (IoU $\le 0.30$) to remove duplicate overlapping detections, preserving the highest-confidence candidate. Inverts letterbox scaling and padding back to native image pixel space.
-8. **Bounding Box Validation**: Validates geometric bounds ($x_1 \ge 0, y_1 \ge 0, x_2 \le W, y_2 \le H, x_2 > x_1, y_2 > y_1$), clips partial overflows to image boundaries, and discards degenerate candidate boxes.
-9. **Structured JSON Result**: Returns a strongly-typed Pydantic v2 response (`AIDetectionResponse`) containing absolute bounding boxes, confidence scores, landmarks, and granular stage latency telemetry. Zero fabricated detections are ever returned.
+For complete architectural details, see [docs/production-architecture.md](docs/production-architecture.md).
 
 ---
 
-## 🚦 Current Status
-
-### **Step 1 — Foundation** ✅ `Completed`
-* Core development environment, project hierarchy, database/cache layers, containerization, and foundational health endpoints verified.
-
-### **Step 2 — AI Engine & Inference Foundation** ✅ `Completed`
-* **Model Selection**: SCRFD & YuNet selected for multi-scale small-face recall, ONNX compatibility, and permissive licensing ([Documentation](docs/ai-model-selection.md)).
-* **Modular AI Architecture**: Decoupled packages under `app/ai/` (`detection`, `tracking`, `analysis`, `inference`, `common`).
-* **Hardware Abstraction**: Dynamic `AUTO`, `CPU`, `GPU` device resolution with zero-crash CPU fallback.
-* **Detector Contract**: Typed `BaseFaceDetector` lifecycle (`load_model`, `detect`, `unload`).
-* **Result Schemas**: Strongly typed Pydantic v2 schemas for bounding boxes, landmarks, quality scores, and responses.
-* **Image Preprocessing**: Detector-agnostic preprocessing with aspect-ratio letterboxing and coordinate inversion.
-* **Model Management**: Structure, version tracking, integrity verification, and Git exclusion policies ([Documentation](docs/model-management.md)).
-* **Service Layer**: `AIService` orchestrator decoupling API controllers from model binaries.
-* **Development Endpoint**: `POST /api/v1/ai/detect` with input validation, zero-fabrication enforcement, and `GET /api/v1/ai/status`.
-* **Error Handling & Sanitization**: Clean AI exception hierarchy (`ModelLoadError`, `InferenceError`, `InvalidImageError`, etc.) mapped to HTTP status codes with zero stack trace exposure.
-* **Structured Telemetry**: JSON-formatted inference performance logging with `request_id` tracing and zero raw payload logging.
-
-### **Step 3 — Real Face Detection Implementation** ✅ `Completed`
-* **Operational AI Engine**: Loaded production YuNet ONNX model (`face_detection_yunet_2023mar.onnx`, 232 KB) via native SIMD C++ backend and ONNX Runtime.
-* **Real Bounding Boxes & Confidence**: Returns precise pixel coordinates, face crops, and genuine confidence scores directly from neural network activations.
-* **5 Facial Landmarks**: Accurate localization of right eye, left eye, nose tip, mouth right corner, and mouth left corner.
-* **Face Quality Analytics**: Computes Laplacian variance sharpness, perceptual brightness, contrast, and crop dimensions for every detected face.
-* **Zero Fabrication Policy**: Mathematically guarantees zero bounding boxes fabricated for empty, blank, or random Gaussian noise images.
-* **Automatic Model Discovery**: Dynamic resolution across `models/face_detection/`, environment variables, and relative development paths.
-* **Live API Verification**: Validated on real portrait image (`sample_face.jpg`) with ~17 ms CPU latency.
-* **Test Suite**: 146/146 automated unit and integration tests passing.
-
-### **Step 4 — Face Landmarks & Quality Analysis** ✅ `Completed`
-* **Landmark Strategy**: Formally documented 5-point native YuNet landmark strategy in `docs/face-landmark-model-selection.md`.
-* **Modular Analysis Layer**: Implemented decoupled modules under `app/ai/analysis/`:
-  - `landmarks.py`: 5-point landmark geometry (inter-pupillary distance, eye tilt angle, bilateral symmetry ratio).
-  - `pose.py`: 3D Head pose estimation (Yaw, Pitch, Roll Euler angles, frontality score, and pose categories via `cv2.solvePnP` with 3D anthropometric model).
-  - `metrics.py`: Blur/clarity Laplacian variance, illumination/exposure diagnostics, and face resolution/scale metrics.
-  - `quality.py`: Weighted composite quality scoring ($0.0 \dots 1.0$), qualitative grading (`EXCELLENT` ... `UNUSABLE`), and usability validation.
-  - `schemas.py`: Strongly typed Pydantic v2 schemas for all diagnostic metrics.
-* **REST API Endpoint**: Added `POST /api/v1/ai/analyze` returning complete `AIAnalysisResponse` with granular per-face diagnostics.
-* **Backward Compatibility**: Exact preservation of legacy `FaceQualityScore` and Step 2/3 contracts.
-* **Automated Test Suite**: 176/176 tests passing.
-
-### **Step 5 — Video Face Detection & Multi-Face Tracking** ✅ `Completed`
-* **Multi-Face Tracker**: Implemented ByteTrack engine (`app/ai/tracking/tracker.py`) with 8D constant-velocity Kalman filter and two-stage BYTE data association.
-* **Temporary Track IDs**: Ephemeral, session-scoped integer IDs (`track_id: 1, 2, ...`) denoting spatio-temporal continuity. Zero biometric identity profiles or face recognition.
-* **Streaming Video Pipeline**: Memory-efficient streaming loop (`cap.read()`) in `VideoProcessingService` preventing full-video RAM buffering.
-* **Performance Intervals**: Configurable `VIDEO_DETECTION_INTERVAL=1` and `VIDEO_ANALYSIS_INTERVAL=5` with Kalman coasting on intermediate frames.
-* **Annotated Video Generation**: Generates MP4 output rendering HUD cards with Track ID, confidence, status, quality score, and session telemetry.
-* **Asynchronous Jobs & Storage**: Decoupled `VideoJobManager` and `LocalStorageBackend` providing job lifecycles (`queued`, `processing`, `completed`, `failed`, `cancelled`) without exposing filesystem paths.
-* **REST API**: Added `POST /api/v1/video/analyze`, `GET /api/v1/video/jobs/{id}`, `GET /api/v1/video/jobs/{id}/download`, and `POST /api/v1/video/jobs/{id}/cancel`.
-* **Automated Test Suite**: 311/311 tests passing across the repository (25 dedicated video tracking tests).
-
-### Current Capabilities
-
-✓ Image face detection
-✓ Facial landmarks
-✓ Face quality analysis
-✓ Video face detection
-✓ Multi-face tracking
-✓ Temporary Track IDs
-✓ Video processing metrics
-✓ Annotated video output
-✓ Video processing job API
-✓ AI Computer-Vision Frontend Dashboard
-✓ Image Analysis Studio with Canvas Overlays
-✓ Asynchronous Video Tracking Studio
-✓ Real-time Telemetry & Settings Preferences
-
-#### Detailed Capabilities Breakdown
-* **✓ Image Face Detection**: Production YuNet & SCRFD ONNX models operating on genuine photos with real activations.
-* **✓ Facial Landmarks**: 5 canonical landmarks (eyes, nose, mouth corners) with sub-pixel localization, IPD, and symmetry metrics.
-* **✓ Face Quality Analysis**: Comprehensive composite quality scoring (0–100) combining Laplacian sharpness, photopic luminance, contrast, scale, and 3D head pose.
-* **✓ Video Face Detection**: Sequential frame-by-frame face localization across video files without memory accumulation.
-* **✓ Multi-Face Tracking**: Real-time ByteTrack multi-object tracking associating bounding boxes across time with Kalman motion forecasting.
-* **✓ Temporary Track IDs**: Strictly local, sequential track IDs per video session with zero cross-video persistence or biometric identification.
-* **✓ Video Processing Metrics**: Real measured telemetry including processing FPS, latency breakdowns, peak simultaneous faces, unique track count, and track lost events.
-* **✓ Annotated Video Output**: Production visualizer producing downloadable MP4 video files with HUD cards and landmark overlays.
-* **✓ Video Processing Job API**: Asynchronous job submission, progress tracking, output downloading, and job cancellation endpoints.
-* **✓ Enterprise AI Frontend Dashboard**: Next.js 14 application with dark/light themes, keyboard accessibility, canvas visualizer, multi-face tabs, and zero mock data.
-
-#### ⚠️ What is NOT Implemented (Reserved for Future Phases)
-* ❌ **Identity Recognition / Biometric Matching**: No facial embeddings extraction, identity database matching, or biometric identification (intentional privacy architecture).
-* ❌ **Live Webcam Streaming WebSocket**: Real-time live webcam frame-by-frame streaming over WebSocket is reserved for upcoming development phases.
-* ❌ **Liveness & Anti-Spoofing Detection**: No 2D/3D print attack, screen replay, or silicon mask anti-spoofing verification models.
-
----
-
-## 🛠️ Technology Stack
+## Technology Stack
 
 | Layer | Technologies |
 | :--- | :--- |
-| **Frontend** | **Next.js 14** + **TypeScript** + **Tailwind CSS** + **Lucide** |
-| **Backend** | **FastAPI** + **Python 3.12** + **Uvicorn** |
-| **AI / Computer Vision** | **ONNX Runtime** + **NumPy** + **OpenCV** + **Pillow** |
-| **Database** | **PostgreSQL** (with SQLAlchemy 2.0 ORM & psycopg 3) |
-| **Cache / Queue** | **Redis** |
-| **Infrastructure** | **Docker** & **Docker Compose** |
-| **Testing** | **pytest** + **pytest-anyio** + **httpx** + **tsc** + **eslint** |
+| **Frontend** | Next.js 14 (App Router), TypeScript, Tailwind CSS, Lucide React |
+| **Backend API** | FastAPI, Python 3.12, Uvicorn, Pydantic v2 |
+| **Computer Vision** | OpenCV 4.10, ONNX Runtime, NumPy, Pillow |
+| **Database** | PostgreSQL 16, SQLAlchemy 2.0 ORM, Alembic |
+| **Queue & Cache** | Redis 7, Python-based worker daemon |
+| **Containerization** | Docker, Docker Compose (multi-stage rootless images) |
+| **Testing** | pytest, pytest-anyio, httpx, ESLint |
 
 ---
 
-## 📚 Technical Documentation
+## Project Structure
 
-- 🖥️ [Frontend Architecture & Dashboard](docs/frontend.md) — Next.js 14 App Router, component hierarchy, accessibility, and theme systems.
-- 🎬 [Video Processing & Multi-Face Tracking](docs/video-processing.md) — Streaming frame extraction, ByteTrack integration, and async job lifecycle.
-- 🎯 [Tracking Algorithms & Selection](docs/tracking.md) — Multi-object tracking evaluation (ByteTrack vs BoT-SORT vs DeepSORT).
-- 🏛️ [AI Engine Architecture](docs/ai-architecture.md) — Architectural design, 9-stage pipeline, Face Analysis layer, and component breakdown.
-- 🔬 [Face Analysis Methodology](docs/face-analysis.md) — Mathematical algorithms, landmark models, optical diagnostics, 3D pose, and 0–100 quality scoring.
-- 🛡️ [Security & Privacy Architecture](docs/security-and-privacy.md) — 9 ingestion defense layers, non-identification guarantees, and zero-persistence controls.
-- 🔬 [Face Landmark Model Selection](docs/face-landmark-model-selection.md) — Architectural evaluation and trade-off analysis of landmark extraction strategies.
-- 🔬 [AI Model Selection Report](docs/ai-model-selection.md) — Evaluation of SCRFD, YuNet, RetinaFace, and YOLO-Face on WIDER FACE benchmarks.
-- 📦 [Model Management Guide](docs/model-management.md) — Storage structure, versioning, download procedures, SHA-256 verification, and hardware variants.
-- ⚙️ [Model Setup & Deployment](docs/model-setup.md) — Host hardware constraints, ONNX weights placement, and production instructions.
-
----
-
-## 🚀 Quickstart (Local Development)
-
-### 1. Environment Setup
-
-Copy `.env.example` to `.env`:
-```bash
-cp .env.example .env
+```text
+deepvision-ai/
+├── backend/
+│   ├── alembic/                 # Database schema migration revisions
+│   ├── app/
+│   │   ├── ai/                  # AI engine modules
+│   │   │   ├── common/          # Shared geometric & bounding box types
+│   │   │   ├── detection/       # FaceDetector (YuNet / SCRFD) & adapters
+│   │   │   ├── analysis/        # Optics, blur, luminance, pose, quality
+│   │   │   ├── tracking/        # ByteTrack Kalman filter & state tracker
+│   │   │   ├── inference/       # ONNX Runtime & device resolution
+│   │   │   └── visualization/   # HUD annotator & frame rendering
+│   │   ├── api/v1/              # REST routes (/ai, /video, /health)
+│   │   ├── core/                # Config, logging, storage, rate limiting
+│   │   ├── models/              # SQLAlchemy 2.0 ORM database entities
+│   │   ├── schemas/             # Pydantic v2 validation contracts
+│   │   ├── services/            # AIService, VideoJobManager, VideoProcessing
+│   │   └── workers/             # video_worker.py background task daemon
+│   ├── tests/                   # 29 test modules (334 automated tests)
+│   ├── Dockerfile               # Rootless multi-stage backend container
+│   └── Dockerfile.worker        # Dedicated background worker container
+├── frontend/
+│   ├── src/                     # Next.js App Router application
+│   │   ├── app/                 # Pages: /, /image, /video, /dashboard, /settings
+│   │   ├── components/          # Canvas visualizers, uploaders, HUD cards
+│   │   └── lib/                 # Typed API clients & utility functions
+│   └── Dockerfile               # Rootless multi-stage frontend container
+├── models/                      # Physical ONNX weights (git-ignored)
+├── storage/                     # Segregated storage (temp/, media/, results/)
+├── scripts/                     # Hardware profiling & benchmark scripts
+├── docs/                        # Complete technical documentation
+├── docker-compose.yml           # Multi-service stack (web, worker, db, redis)
+└── .env.example                 # Configuration template
 ```
 
-### 2. Run the Backend
+---
 
+## Local Development
+
+### Prerequisites
+* Python 3.12+
+* Node.js 20+ & npm
+* Git
+
+### 1. Backend Setup
 ```bash
 cd backend
-# Activate virtual environment
+python -m venv venv
 .\venv\Scripts\activate   # Windows
 # source venv/bin/activate # Linux/macOS
 
-# Run development server
+pip install -r requirements.txt
+
+# Run database migrations
+alembic upgrade head
+
+# Start API development server
 uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
-* **API Documentation**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
-* **Health Endpoint**: [http://127.0.0.1:8000/api/v1/health](http://127.0.0.1:8000/api/v1/health)
-* **AI Status Endpoint**: [http://127.0.0.1:8000/api/v1/ai/status](http://127.0.0.1:8000/api/v1/ai/status)
 
-### 3. Run Backend Test Suite
-
+### 2. Video Worker Setup (Optional for Redis Queue)
+In a separate terminal window:
 ```bash
 cd backend
-pytest tests -v
+python -m app.workers.video_worker
 ```
+*(Note: If Redis is offline, the backend automatically uses its in-memory queue fallback).*
 
-### 4. Run the Frontend
-
+### 3. Frontend Setup
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-* **Frontend Application**: [http://localhost:3000](http://localhost:3000)
 
-### 5. Run via Docker Compose
+* **Frontend Dashboard**: [http://localhost:3000](http://localhost:3000)
+* **Backend API Docs**: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs)
+* **Health Check**: [http://127.0.0.1:8000/api/v1/health](http://127.0.0.1:8000/api/v1/health)
+
+---
+
+## Environment Variables
+
+Key parameters in `.env` (see `.env.example` and `.env.production.example`):
+
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `ENVIRONMENT` | `development` | Runtime mode (`development`, `staging`, `production`) |
+| `SECRET_KEY` | *(change in prod)* | Cryptographic session signing key |
+| `DATABASE_URL` | `sqlite:///./deepvision.db` | PostgreSQL or SQLite database URL |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis queue and rate limiting connection string |
+| `CORS_ORIGINS` | `*` | Allowed CORS origins (restrict in production) |
+| `AI_DEVICE` | `auto` | Execution device: `auto`, `cpu`, or `gpu` |
+| `AI_CONFIDENCE_THRESHOLD` | `0.50` | Minimum face detection confidence score |
+| `AI_REQUIRE_MODEL` | `false` | When true, fails fast if model weights are missing |
+| `MAX_CONCURRENT_VIDEO_JOBS` | `4` | Maximum parallel video processing tasks |
+| `VIDEO_DETECTION_INTERVAL` | `1` | Frame interval for running face detector |
+| `VIDEO_ANALYSIS_INTERVAL` | `5` | Frame interval for computing face quality/optics |
+
+---
+
+## AI Models
+
+DeepVision AI utilizes standard lightweight ONNX model graphs:
+
+| Model | Architecture | File Size | Checksum (SHA-256) | License | Source |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **YuNet (Default)** | YuNet CNN | 232 KB | `8F2383E4DD3CFBB4553EA8718107FC0423210DC964F9F4280604804ED2552FA4` | Apache-2.0 | [OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/master/models/face_detection_yunet) |
+| **SCRFD-500M** | SCRFD Mobile | ~1.7 MB | `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855` | Apache-2.0 | [InsightFace](https://github.com/deepinsight/insightface/tree/master/detection/scrfd) |
+
+* **Zero Commits to Git**: All `.onnx` and weight binaries are strictly excluded from version control via `.gitignore`.
+* **Zero Silent Startup Downloads**: The platform never silently downloads weights on boot, ensuring deterministic, air-gapped cold starts.
+
+For download and setup instructions, see [docs/model-setup.md](docs/model-setup.md) and [docs/model-management.md](docs/model-management.md).
+
+---
+
+## Image Analysis
+
+Submit single images to `POST /api/v1/ai/detect` or `POST /api/v1/ai/analyze` (`multipart/form-data`).
+
+### Example Response (`POST /api/v1/ai/analyze`)
+```json
+{
+  "success": true,
+  "face_count": 1,
+  "faces": [
+    {
+      "face_index": 0,
+      "bounding_box": { "x1": 154, "y1": 92, "x2": 486, "y2": 524, "width": 332, "height": 432 },
+      "confidence": 0.998,
+      "landmarks": {
+        "right_eye": { "x": 235.1, "y": 218.4 },
+        "left_eye": { "x": 402.7, "y": 214.2 },
+        "nose_tip": { "x": 322.8, "y": 305.6 },
+        "mouth_right": { "x": 251.3, "y": 412.0 },
+        "mouth_left": { "x": 395.4, "y": 408.8 }
+      },
+      "quality": {
+        "overall_score": 88.5,
+        "quality_category": "EXCELLENT",
+        "blur_score": 142.6,
+        "brightness_score": 128.4,
+        "contrast_score": 58.2,
+        "is_usable": true
+      },
+      "pose": {
+        "yaw": -2.4,
+        "pitch": 4.1,
+        "roll": -1.2,
+        "pose_category": "FRONTAL"
+      }
+    }
+  ],
+  "telemetry": {
+    "total_analysis_time_ms": 17.4,
+    "device_used": "CPU"
+  }
+}
+```
+
+---
+
+## Video Tracking
+
+Video files are processed asynchronously via `POST /api/v1/video/analyze`:
+
+1. **Job Enqueued**: The API validates the container, generates a `job_id`, and returns HTTP 202 Accepted.
+2. **Streaming Execution**: The worker extracts frames sequentially, applies ByteTrack multi-object tracking, computes optics at configurable intervals, and draws HUD annotations.
+3. **Telemetry & Artifacts**: Once complete, the job reports total frames, average processing FPS, peak simultaneous faces, and unique track count.
+
+### Video Tracking API Endpoints
+* `POST /api/v1/video/analyze`: Upload video and enqueue processing job.
+* `GET /api/v1/video/jobs/{id}`: Poll job progress and retrieve tracking telemetry.
+* `POST /api/v1/video/jobs/{id}/cancel`: Safely cancel an active job and purge temporary files.
+* `GET /api/v1/video/jobs/{id}/download`: Download rendered annotated MP4 video.
+
+---
+
+## API Documentation
+
+When the backend is running, complete interactive OpenAPI documentation is accessible at:
+* Swagger UI: `http://localhost:8000/docs`
+* ReDoc: `http://localhost:8000/redoc`
+* OpenAPI JSON: `http://localhost:8000/openapi.json`
+
+---
+
+## Testing
+
+The codebase maintains 100% test pass rates across unit, integration, and security suites:
+
+```bash
+cd backend
+python -m pytest -v
+```
+
+### Verified Test Suites (334 Tests Total)
+* `test_end_to_end_integration.py`: Complete pipeline integration test.
+* `test_step7_hardening_and_architecture.py`: Database models, Alembic migrations, storage partitions, health probes.
+* `test_production_security_hardening.py`: Rate limiters, security headers, concurrency gates, path sanitization.
+* `test_structured_logging.py`: Structured JSON logging, secret redaction, request ID correlation.
+* `test_video_*.py`: Multi-face tracking, Kalman filtering, ByteTrack association, async job lifecycle.
+* `test_ai_inference.py`: Core detection engine, letterbox preprocessing, coordinate unpadding.
+
+---
+
+## Docker
+
+Deploy the complete multi-service production stack with Docker Compose:
 
 ```bash
 docker compose up --build
 ```
+
+### Services
+* `postgres`: PostgreSQL 16 database.
+* `redis`: Redis 7 broker and rate-limiting store.
+* `backend`: FastAPI API engine (Port 8000).
+* `worker`: Standalone video background worker.
+* `frontend`: Next.js 14 web application (Port 3000).
+
+All containers execute under unprivileged non-root user accounts (`UID 1000` / `UID 1001`).
+
+---
+
+## Deployment
+
+For enterprise production deployments across Bare-Metal, Cloud VMs, and Managed Container Platforms (AWS, GCP, Azure), refer to the comprehensive deployment guide:
+* [docs/production-deployment.md](docs/production-deployment.md)
+
+---
+
+## Performance
+
+Live performance benchmarks measured on an Intel Core i5-8365U CPU (4 Cores / 8 Threads, 16 GB RAM) using [scripts/benchmark_performance.py](scripts/benchmark_performance.py):
+
+* **Image Face Detection (640x480)**: Mean latency **16.62 ms** (~60.2 FPS).
+* **Image Face Detection (1280x720 HD)**: Mean latency **62.70 ms** (~15.9 FPS).
+* **Streaming Video Tracking (120 frames @ 24fps)**:
+  * Total Wall-Clock Processing Time: **3.051 seconds** (sub-realtime on pure CPU).
+  * Throughput: **39.34 FPS**.
+  * Average Frame Processing Time: **25.42 ms**.
+  * Peak Memory Allocation: **4.52 MB** (steady streaming heap).
+
+For full benchmark figures and hardware telemetry, see [docs/performance.md](docs/performance.md).
+
+---
+
+## Security
+
+DeepVision AI incorporates defense-in-depth security principles:
+* **Zero Hardcoded Secrets**: All credentials resolved via environment variables.
+* **Path Traversal Protection**: Uploaded filenames sanitized; direct memory decoding for still images.
+* **Injection Defense**: Zero `subprocess`, `os.system`, or `eval` calls across application paths.
+* **Rate Limiting & Concurrency**: Sliding-window rate limiters and maximum concurrent job limits.
+* **Traceback Masking**: Raw internal exception traces masked from client responses.
+* **Rootless Containers**: Production Docker images execute as unprivileged users.
+
+Full audit results are documented in [docs/security.md](docs/security.md).
+
+---
+
+## Privacy
+
+DeepVision AI enforces strict technical privacy-by-design boundaries:
+* **Detection, Not Recognition**: Detects spatial coordinates and optical quality; never matches individuals.
+* **Zero Biometric Identity Profiling**: Zero facial embedding vectors, identity databases, or watchlists.
+* **Ephemeral Processing**: Still images processed 100% in volatile RAM with zero disk persistence.
+* **Session-Scoped Track IDs**: Track IDs represent mathematical motion continuity in a single video and are discarded upon completion.
+* **Compliance Disclaimer**: Technical privacy safeguards are built-in, but formal compliance with statutory frameworks (GDPR, DPDP, HIPAA) requires organizational review.
+
+For complete data governance policies, see [docs/privacy.md](docs/privacy.md).
+
+---
+
+## Limitations
+
+* **Pure CPU Execution by Default**: Standard installations execute on CPU. GPU acceleration requires NVIDIA drivers and `CUDAExecutionProvider`.
+* **5-Point Landmark Resolution**: Built-in landmarks provide 5 key points. High-density facial mesh (68-point / 468-point) requires secondary model pipelines.
+* **Lighting & Severe Occlusion**: Extreme low light (< 20 lux) or severe facial occlusions (> 70%) may reduce detection confidence.
+* **No Video Live-Streaming Ingestion**: Video processing is currently file-based (MP4, AVI, MOV, MKV); RTSP/RTMP live streams are not yet supported.
+
+---
+
+## Future Improvements
+
+1. **WebSocket Live Camera Ingestion**: Streaming webcam frame analysis directly from the browser over WebSocket.
+2. **NVIDIA TensorRT GPU Acceleration**: FP16 / INT8 engine optimization delivering 200+ FPS per GPU worker.
+3. **KEDA Autoscaling Worker Pools**: Kubernetes event-driven autoscaling dynamically provisioning GPU worker nodes based on Redis queue depth.
+4. **Edge Device Deployment**: Dedicated builds optimized for edge inference devices (NVIDIA Jetson Orin, Raspberry Pi 5).
+5. **High-Density Landmark Mesh**: Optional 68-point or 106-point facial mesh landmark models for detailed facial expression diagnostics.

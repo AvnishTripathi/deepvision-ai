@@ -48,14 +48,46 @@ services:
     environment:
       - APP_NAME=DeepVision AI
       - APP_VERSION=0.1.0
-      - ENVIRONMENT=development
+      - ENVIRONMENT=production
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/deepvision_db
       - REDIS_URL=redis://redis:6379/0
       - CORS_ORIGINS=http://localhost:3000
+      - ALLOWED_HOSTS=*
       - LOG_LEVEL=INFO
       - AI_DEVICE=auto
+      - RATE_LIMIT_ENABLED=true
+      - RATE_LIMIT_IMAGE_ANALYSIS=60/minute
+      - RATE_LIMIT_VIDEO_ANALYSIS=10/minute
+      - VIDEO_MAX_CONCURRENT_JOBS=4
+      - SECRET_KEY=${SECRET_KEY:-deepvision-ai-development-secret-key-change-in-production}
     ports:
       - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./storage:/app/storage
+      - ./models:/app/models
+    networks:
+      - deepvision-network
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.worker
+    container_name: deepvision-worker
+    restart: unless-stopped
+    environment:
+      - APP_NAME=DeepVision AI Worker
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/deepvision_db
+      - REDIS_URL=redis://redis:6379/0
+      - LOG_LEVEL=INFO
+      - AI_DEVICE=auto
+      - VIDEO_MAX_CONCURRENT_JOBS=4
+      - SECRET_KEY=${SECRET_KEY:-deepvision-ai-development-secret-key-change-in-production}
     depends_on:
       postgres:
         condition: service_healthy
@@ -76,6 +108,7 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000
+      - NEXT_PUBLIC_API_URL=http://localhost:8000
     ports:
       - "3000:3000"
     depends_on:

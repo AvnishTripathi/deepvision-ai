@@ -86,7 +86,7 @@ export async function pollVideoJobStatus(jobId: string): Promise<VideoJob> {
       ? `${API_BASE_URL}/api/v1/video/jobs/${encodeURIComponent(jobId)}/download`
       : null;
 
-  return {
+  return {   
     job_id: raw.job_id,
     status: raw.status,
     progress: raw.progress ?? 0,

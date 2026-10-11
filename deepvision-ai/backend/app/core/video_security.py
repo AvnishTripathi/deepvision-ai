@@ -97,7 +97,8 @@ async def save_upload_video_safely(
     Returns:
         Tuple[str, int]: (temp_file_path, total_bytes_written)
     """
-    max_allowed = max_bytes or (settings.MAX_VIDEO_SIZE_MB * 1024 * 1024)
+    max_mb = getattr(settings, "VIDEO_MAX_FILE_SIZE_MB", getattr(settings, "MAX_VIDEO_SIZE_MB", 500))
+    max_allowed = max_bytes or (max_mb * 1024 * 1024)
     filename = sanitize_video_filename(upload_file.filename)
     validate_video_extension_and_mime(filename, upload_file.content_type)
 
@@ -117,7 +118,7 @@ async def save_upload_video_safely(
                 total_bytes += len(chunk)
                 if total_bytes > max_allowed:
                     raise VideoTooLargeException(
-                        f"Video file size exceeds maximum permitted limit of {settings.MAX_VIDEO_SIZE_MB}MB."
+                        f"Video file size exceeds maximum permitted limit of {max_mb}MB."
                     )
                 f_out.write(chunk)
 

@@ -33,6 +33,7 @@ from app.schemas.ai import (
 )
 from app.ai.analysis.schemas import AIAnalysisResponse
 from app.services.ai_service import AIService, get_ai_service
+from app.core.rate_limit import rate_limit_image_analysis
 
 logger = logging.getLogger("deepvision.api.ai")
 
@@ -130,6 +131,7 @@ Returns standard `AIDetectionResponse`:
     },
     summary="Execute Face Detection Inference",
     description=DETECT_ENDPOINT_DESCRIPTION,
+    dependencies=[Depends(rate_limit_image_analysis)],
 )
 async def detect_faces(
     request: Request,
@@ -329,6 +331,7 @@ Returns `AIAnalysisResponse` with structured face analysis for each detected fac
     },
     summary="Execute Face Detection with Comprehensive Quality & Landmark Analysis",
     description=ANALYZE_ENDPOINT_DESCRIPTION,
+    dependencies=[Depends(rate_limit_image_analysis)],
 )
 async def analyze_image(
     request: Request,

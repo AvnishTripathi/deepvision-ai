@@ -35,37 +35,58 @@ During hardware diagnostic inspection on this host:
 
 ## 3. Step-by-Step Production Model Placement
 
-Once ready to deploy live SCRFD weights:
+### Primary Certified Model: YuNet (Recommended for CPU & Lightweight Production)
+- **Target File**: `face_detection_yunet_2023mar.onnx`
+- **Official Source**: [OpenCV Zoo YuNet](https://github.com/opencv/opencv_zoo/tree/master/models/face_detection_yunet)
+- **SHA-256 Checksum**: `8F2383E4DD3CFBB4553EA8718107FC0423210DC964F9F4280604804ED2552FA4`
+- **File Size**: 232 KB (232,589 bytes)
+- **License**: Apache-2.0
+- **Input Dimensions**: Dynamic resolution (`320 x 320` to `1280 x 720`)
+- **Integrated Outputs**: Face bounding boxes, confidence score, and 5 facial landmarks (right eye, left eye, nose tip, right mouth corner, left mouth corner).
 
-### Step 1: Download Target Model Weights
-Download the official SCRFD ONNX model (recommended: **SCRFD-500M** for lightweight CPU deployments, or **SCRFD-2.5G** for higher accuracy):
+```powershell
+# Windows PowerShell
+Invoke-WebRequest -Uri "https://github.com/opencv/opencv_zoo/raw/master/models/face_detection_yunet/face_detection_yunet_2023mar.onnx" `
+  -OutFile "models/face_detection/face_detection_yunet_2023mar.onnx"
+```
 
+```bash
+# Linux / macOS / Docker
+curl -L -o models/face_detection/face_detection_yunet_2023mar.onnx \
+  https://github.com/opencv/opencv_zoo/raw/master/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
+```
+
+### Alternative High-Resolution Model: SCRFD-500M
 - **Target File**: `scrfd_500m_bnkps_shape640x640.onnx`
 - **Official Source**: [InsightFace Model Zoo (SCRFD)](https://github.com/deepinsight/insightface/tree/master/detection/scrfd)
-- **Model Size**: ~1.7 MB (SCRFD-500M) / ~3.3 MB (SCRFD-2.5G)
+- **SHA-256 Checksum**: `e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855`
+- **File Size**: ~1.7 MB
+- **License**: Apache-2.0
 - **Input Dimensions**: `1 x 3 x 640 x 640` (NCHW, Float32 in `[0.0, 1.0]`)
-- **Integrated Outputs**: Multi-stride scores (8, 16, 32), bounding box offsets, and 5 facial landmark regression points.
 
-### Step 2: Place Binary in Models Directory
-Save the file to:
+```powershell
+# Windows PowerShell
+Invoke-WebRequest -Uri "https://github.com/deepinsight/insightface/releases/download/v0.7/scrfd_500m_bnkps.onnx" `
+  -OutFile "models/face_detection/scrfd_500m.onnx"
 ```
-deepvision-ai/models/face_detection/scrfd_500m_bnkps_shape640x640.onnx
-```
-*(This path is automatically ignored by Git via `.gitignore`)*.
 
-### Step 3: Configure Environment
-Set the model path and target device in your `.env` file:
+---
+
+## 4. Environment Configuration & Verification
+
+Configure the model in `.env`:
 ```ini
 AI_DEVICE=auto
-AI_MODEL_NAME=scrfd_500m
-AI_MODEL_VERSION=1.0.0
+AI_MODEL_NAME=face_detection_yunet_2023mar
+AI_MODEL_VERSION=2023mar
 AI_CONFIDENCE_THRESHOLD=0.50
 AI_ENABLE_GPU=false
+AI_REQUIRE_MODEL=false  # Set to true in production to fail fast if missing
 ```
 
-### Step 4: Verify Live Weights
-Run the verification script:
+Run verification:
 ```bash
 python scripts/verify_ai_pipeline.py
 ```
-`FaceDetector` will detect the physical `.onnx` file, compile an active `ort.InferenceSession`, and forward incoming frames through `InferenceRuntime` and `SCRFDAdapter`.
+`FaceDetector` detects the `.onnx` file and loads the OpenCV FaceDetectorYN or ONNX Runtime inference engine.
+

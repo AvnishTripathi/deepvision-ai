@@ -44,6 +44,8 @@ class Settings(BaseSettings):
     AI_MAX_IMAGE_DIMENSION: int = 4096
     AI_ENABLE_GPU: bool = False
     AI_MODEL_PATH: Optional[str] = None
+    AI_REQUIRE_MODEL: bool = False
+
 
     # Pipeline Modular Feature Toggles (Step 19)
     AI_ENABLE_LANDMARKS: bool = True
@@ -96,10 +98,26 @@ class Settings(BaseSettings):
     VIDEO_MAX_HEIGHT: int = 4096
     VIDEO_MAX_FRAME_COUNT: int = 18000
 
-    # Security
+    # Security & Networking Hardening
     SECRET_KEY: str = "deepvision-ai-development-secret-key-change-in-production"
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    ALLOWED_HOSTS: Union[List[str], str] = ["*"]
+
+    # Rate Limiting (Step 7.4)
+    RATE_LIMIT_ENABLED: bool = True
+    RATE_LIMIT_IMAGE_ANALYSIS: str = "60/minute"
+    RATE_LIMIT_VIDEO_ANALYSIS: str = "10/minute"
+
+    # Concurrency Resource Protection (Step 7.6 / 7.8)
+    VIDEO_MAX_CONCURRENT_JOBS: int = 4
+    MAX_CONCURRENT_VIDEO_JOBS: Optional[int] = None
+
+    @model_validator(mode="after")
+    def sync_concurrency_settings(self):
+        if self.MAX_CONCURRENT_VIDEO_JOBS is not None:
+            self.VIDEO_MAX_CONCURRENT_JOBS = self.MAX_CONCURRENT_VIDEO_JOBS
+        return self
 
     @field_validator("CORS_ORIGINS")
     @classmethod
@@ -118,6 +136,19 @@ class Settings(BaseSettings):
                         return [str(item).strip() for item in parsed]
                 except json.JSONDecodeError:
                     pass
+            return [item.strip() for item in v.split(",") if item.strip()]
+        return ["*"]
+
+    @field_validator("ALLOWED_HOSTS")
+    @classmethod
+    def parse_allowed_hosts(cls, v: Union[List[str], str]) -> List[str]:
+        """Supports comma-separated strings or list of allowed HTTP hosts."""
+        if isinstance(v, list):
+            return [str(item).strip() for item in v]
+        if isinstance(v, str):
+            v = v.strip()
+            if not v or v == "*":
+                return ["*"]
             return [item.strip() for item in v.split(",") if item.strip()]
         return ["*"]
 

@@ -31,6 +31,7 @@ from app.ai.detection.adapter import BaseModelAdapter, SCRFDAdapter
 from app.ai.analysis.quality import analyze_face_quality
 from app.ai.inference.runtime import InferenceRuntime
 from app.ai.inference.device import resolve_device
+from app.core.config import settings
 
 logger = logging.getLogger("deepvision.ai.detection")
 
@@ -52,8 +53,6 @@ class FaceDetector(BaseFaceDetector):
         confidence_threshold: Optional[float] = None,
         nms_threshold: Optional[float] = None,
     ):
-        from app.core.config import settings
-
         self.model_path = model_path
         self.device = resolve_device(device)
         self.target_size = target_size
@@ -97,6 +96,11 @@ class FaceDetector(BaseFaceDetector):
         self.device = target_device
 
         if not target_path or not os.path.exists(target_path):
+            if getattr(settings, "AI_REQUIRE_MODEL", False):
+                raise FileNotFoundError(
+                    f"Required AI model file not found at '{target_path}'. "
+                    "Please ensure model weights are downloaded and placed in the models directory."
+                )
             logger.info("No physical model file at '%s'; baseline detection engine active.", target_path)
             self.engine = None
             self._cv2_detector = None

@@ -321,6 +321,13 @@ class VideoProcessingCancelledException(VideoException):
         super().__init__(message=message, error_code="job_cancelled", status_code=200)
 
 
+class VideoJobCapacityExceededException(VideoException):
+    """Raised when the maximum concurrent video processing jobs limit is reached."""
+
+    def __init__(self, message: str = "Server busy: Maximum concurrent video processing jobs exceeded. Please retry later."):
+        super().__init__(message=message, error_code="capacity_exceeded", status_code=429)
+
+
 # -----------------------------------------------------------------------------
 # Storage & Database Exceptions
 # -----------------------------------------------------------------------------

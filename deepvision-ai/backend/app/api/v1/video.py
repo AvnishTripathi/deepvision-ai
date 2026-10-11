@@ -23,6 +23,7 @@ from app.services.video_job_manager import (
     BaseVideoJobManager,
     get_video_job_manager,
 )
+from app.core.rate_limit import rate_limit_video_analysis
 
 logger = logging.getLogger("deepvision.api.video")
 
@@ -34,6 +35,7 @@ router = APIRouter(prefix="/video", tags=["Video Tracking"])
     response_model=VideoJobCreateResponse,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Submit Video for Face Detection & Tracking",
+    dependencies=[Depends(rate_limit_video_analysis)],
     description="""
     Uploads a video file, validates container readability, and enqueues an asynchronous
     face detection and multi-face tracking processing job.

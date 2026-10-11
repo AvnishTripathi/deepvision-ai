@@ -46,6 +46,14 @@ class VideoJobStatusResponse(BaseModel):
         description="Comprehensive tracking & performance telemetry upon completion"
     )
     error: Optional[str] = Field(default=None, description="Error explanation if job failed")
+    current_faces: Optional[int] = Field(
+        default=None,
+        description="Number of faces detected in the most recently processed frame (during processing)"
+    )
+    active_tracks: Optional[int] = Field(
+        default=None,
+        description="Number of active face tracks in the most recently processed frame (during processing)"
+    )
     output_media: Optional[str] = Field(
         default=None,
         description="Download URI endpoint for annotated video artifact (never raw server filesystem path)"
