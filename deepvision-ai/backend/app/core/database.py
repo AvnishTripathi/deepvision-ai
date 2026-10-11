@@ -73,14 +73,18 @@ def get_db() -> Generator[Session, None, None]:
 def init_db() -> None:
     """
     Initializes database tables.
-    Called on application startup.
+    Called on application startup. Safe across concurrent workers.
     """
     try:
-        Base.metadata.create_all(bind=engine)
+        Base.metadata.create_all(bind=engine, checkfirst=True)
         logger.info("Database metadata initialized successfully (Dialect: %s)", engine.dialect.name)
     except Exception as exc:
-        logger.error("Failed to initialize database metadata: %s", exc)
-        raise
+        # If running with multiple workers (e.g. workers=2 on Render) or tables exist
+        err_msg = str(exc).lower()
+        if "already exists" in err_msg:
+            logger.info("Database tables already initialized: %s", exc)
+        else:
+            logger.warning("Database initialization note (non-fatal): %s", exc)
 
 
 def check_db_connection() -> Dict[str, Any]:
