@@ -1,6 +1,18 @@
-# DeepVision AI
+<div align="center">
+  <img src="docs/assets/logo.png" alt="DeepVision AI Logo" width="280" />
 
-> **See. Detect. Track. Analyze. Understand.**
+  # DeepVision AI
+
+  **See. Detect. Track. Analyze. Understand.**
+
+  [![Python](https://img.shields.io/badge/Python-3.12-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
+  [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-009688.svg?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+  [![Next.js](https://img.shields.io/badge/Next.js-14.2-black.svg?logo=next.js&logoColor=white)](https://nextjs.org/)
+  [![OpenCV](https://img.shields.io/badge/OpenCV-YuNet-5C3EE8.svg?logo=opencv&logoColor=white)](https://opencv.org/)
+  [![License](https://img.shields.io/badge/License-Apache_2.0-green.svg)](LICENSE)
+</div>
+
+---
 
 A production-grade, privacy-first computer vision and visual intelligence platform designed for high-throughput face detection, facial landmark localization, optical quality evaluation, and real-time multi-face video tracking.
 
