@@ -1,11 +1,15 @@
-# 🛡️ DeepFaceGuard
+<div align="center">
+  <img src="docs/assets/logo.png" alt="DeepFaceGuard / DeepVision AI Logo" width="280" />
 
-> **Industry-grade Deepfake Detection Platform** — Detect deepfakes in photos, videos & live webcam with AI
+  # 🛡️ DeepFaceGuard
 
-![DeepFaceGuard](https://img.shields.io/badge/AI%20Powered-EfficientNet--B7-blue)
-![FastAPI](https://img.shields.io/badge/Backend-FastAPI-green)
-![React](https://img.shields.io/badge/Frontend-React%2018-61dafb)
-![Python](https://img.shields.io/badge/Python-3.11+-yellow)
+  > **Industry-grade Deepfake Detection Platform** — Detect deepfakes in photos, videos & live webcam with AI
+
+  ![DeepFaceGuard](https://img.shields.io/badge/AI%20Powered-EfficientNet--B7-blue)
+  ![FastAPI](https://img.shields.io/badge/Backend-FastAPI-green)
+  ![React](https://img.shields.io/badge/Frontend-React%2018-61dafb)
+  ![Python](https://img.shields.io/badge/Python-3.11+-yellow)
+</div>
 
 ---
 
@@ -97,23 +101,20 @@ Bounding Box Validation
 Structured JSON Result
 ```
 
-### 🌟 Current Capabilities (End of Step 3)
-* **Real Image Face Detection**: Real, production neural network inference using YuNet ONNX weights (`face_detection_yunet_2023mar.onnx`).
+### 🌟 Current Capabilities
+* **Real Image Face Detection**: Real neural network inference using YuNet ONNX weights (`face_detection_yunet_2023mar.onnx`).
 * **Multiple Faces**: Accurately localizes and detects multiple human faces across varying scales, orientations, and crowded scenes in a single forward pass.
-* **Confidence Scores**: Authentic floating-point probability scores ($0.0 \dots 1.0$) computed directly from model activations.
-* **Bounding Boxes**: Absolute, pixel-accurate bounding box coordinates ($x_1, y_1, x_2, y_2$) mapped directly to native image dimensions.
-* **Configurable Threshold**: Globally configurable detection sensitivity via `AI_CONFIDENCE_THRESHOLD` (default `0.6`) and per-request dynamic overrides via query parameter `?confidence_threshold=`.
-* **CPU/GPU Runtime Where Supported**: Resilient hardware abstraction executing reliably on CPU with SIMD optimizations, with automatic GPU enablement (CUDA, DirectML) where drivers and runtime execution providers exist.
-* **Inference Timing**: Real measured latency profiling returned in API responses and logged, including granular breakdown (`preprocessing_time_ms`, `inference_time_ms`, `postprocessing_time_ms`, `total_processing_time_ms`).
-* **API Access**: Hardened REST API endpoint `POST /api/v1/ai/detect` documented via OpenAPI / Swagger UI (`/docs`), input validation, and sanitized error schemas (`400`, `413`, `500`, `503`).
-* **Development Visualization**: Offline developer utility (`scripts/visualize_detections.py` and `app/ai/visualization/annotator.py`) to annotate images with bounding boxes, confidence score badges, and 5-point facial landmarks without modifying the original input.
+* **Facial Landmarks & 3D Head Pose**: 5-point canonical facial landmarks with sub-pixel regression and 3D Euler head orientation (Yaw, Pitch, Roll angles).
+* **Multi-Face Video Tracking**: ByteTrack multi-object tracking associating bounding boxes across time with 8D constant-velocity Kalman filtering.
+* **Temporary Track IDs**: Ephemeral, session-scoped integer IDs (`Track #1`, `Track #2`) denoting spatio-temporal continuity.
+* **Optical Quality Analytics**: Granular face diagnostics including Laplacian blur variance, photopic luminance distribution, contrast, and composite usability grading.
+* **Annotated Video Rendering**: Video composition rendering HUD cards with Track ID, confidence, optical scores, and session metrics into downloadable MP4 video containers.
+* **Modern Web Interface**: Next.js 14 AI vision workspace featuring interactive canvas visualizers, dark/light themes, drag-and-drop media ingestion, and job telemetry.
 
-### ⚠️ What is NOT Implemented Yet
-* ❌ **Identity Recognition / Biometric Matching**: No facial embeddings extraction, identity database matching, or biometric identification is active (`face_id: null`).
-* ❌ **Multi-Frame Video Tracking**: No temporal trajectory tracking across video frames (e.g. ByteTrack, SORT) or track ID continuity.
-* ❌ **Live Webcam Streaming WebSocket**: Real-time live webcam frame-by-frame streaming over WebSocket is not yet connected to the deep face detection model.
-* ❌ **Liveness & Anti-Spoofing Detection**: No 2D/3D print attack, screen replay, or silicon mask anti-spoofing verification models.
-* ❌ **Facial Attribute Analysis**: No estimation of age, gender, emotion, head pose angles (yaw, pitch, roll), or facial landmarks beyond the core 5 keypoints.
+### ⚠️ Privacy Guardrails & Planned Roadmap
+* ❌ **Identity Recognition / Biometric Matching**: Strictly prohibited by design. No facial embeddings extraction, identity database matching, or biometric identification is active (`face_id: null`).
+* ❌ **Live Webcam Streaming WebSocket**: Real-time webcam frame-by-frame streaming over WebSocket is planned for future phases.
+* ❌ **Liveness & Anti-Spoofing Detection**: 2D/3D presentation attack and silicon mask anti-spoofing verification models belong to upcoming security roadmaps.
 
 ---
 
