@@ -2,7 +2,7 @@
  * DeepVision AI — Asynchronous Video Tracking & MOT API
  */
 
-import { API_BASE_URL, ApiError } from "./client";
+import { API_BASE_URL, getApiBaseUrl, ApiError } from "./client";
 import { VideoJob, VideoSubmitResponse } from "./types";
 
 export interface VideoProcessingRequestOptions {
@@ -38,7 +38,7 @@ export async function submitVideoAnalysisJob(
   }
 
   const queryString = queryParams.toString() ? `?${queryParams.toString()}` : "";
-  const url = `${API_BASE_URL}/api/v1/video/analyze${queryString}`;
+  const url = `${getApiBaseUrl()}/api/v1/video/analyze${queryString}`;
 
   const response = await fetch(url, {
     method: "POST",
@@ -64,7 +64,8 @@ export async function submitVideoAnalysisJob(
 }
 
 export async function pollVideoJobStatus(jobId: string): Promise<VideoJob> {
-  const url = `${API_BASE_URL}/api/v1/video/jobs/${encodeURIComponent(jobId)}`;
+  const baseUrl = getApiBaseUrl();
+  const url = `${baseUrl}/api/v1/video/jobs/${encodeURIComponent(jobId)}`;
   const response = await fetch(url);
 
   if (!response.ok) {
@@ -83,7 +84,7 @@ export async function pollVideoJobStatus(jobId: string): Promise<VideoJob> {
   const raw = await response.json();
   const annotatedVideoUrl =
     raw.status === "completed"
-      ? `${API_BASE_URL}/api/v1/video/jobs/${encodeURIComponent(jobId)}/download`
+      ? `${baseUrl}/api/v1/video/jobs/${encodeURIComponent(jobId)}/download`
       : null;
 
   return {   
@@ -103,7 +104,7 @@ export async function pollVideoJobStatus(jobId: string): Promise<VideoJob> {
 }
 
 export async function cancelVideoJobExecution(jobId: string): Promise<boolean> {
-  const url = `${API_BASE_URL}/api/v1/video/jobs/${encodeURIComponent(jobId)}/cancel`;
+  const url = `${getApiBaseUrl()}/api/v1/video/jobs/${encodeURIComponent(jobId)}/cancel`;
   try {
     const response = await fetch(url, { method: "POST" });
     return response.ok;
@@ -113,6 +114,6 @@ export async function cancelVideoJobExecution(jobId: string): Promise<boolean> {
 }
 
 export function getVideoDownloadUrl(jobId: string): string {
-  return `${API_BASE_URL}/api/v1/video/jobs/${encodeURIComponent(jobId)}/download`;
+  return `${getApiBaseUrl()}/api/v1/video/jobs/${encodeURIComponent(jobId)}/download`;
 }
 

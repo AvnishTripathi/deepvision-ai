@@ -5,10 +5,13 @@ Configuration is loaded from environment variables and .env files.
 """
 
 import os
+import logging
 from typing import List, Optional, Any, Union
 import json
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger("deepvision.core.config")
 
 
 class Settings(BaseSettings):

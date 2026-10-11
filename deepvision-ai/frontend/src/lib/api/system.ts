@@ -2,12 +2,13 @@
  * DeepVision AI — System Telemetry & Health Probing
  */
 
-import { API_BASE_URL } from "./client";
+import { getApiBaseUrl } from "./client";
 import { SystemStatusResponse } from "./types";
 
 export async function checkHealth(): Promise<boolean> {
   try {
-    const res = await fetch(`${API_BASE_URL}/api/v1/health`, {
+    const baseUrl = getApiBaseUrl();
+    const res = await fetch(`${baseUrl}/api/v1/health`, {
       method: "GET",
       headers: { Accept: "application/json" },
       cache: "no-store",
@@ -25,7 +26,8 @@ export async function fetchSystemStatus(): Promise<SystemStatusResponse> {
       return { status: "offline", is_ready: false };
     }
 
-    const res = await fetch(`${API_BASE_URL}/api/v1/ai/status`, {
+    const baseUrl = getApiBaseUrl();
+    const res = await fetch(`${baseUrl}/api/v1/ai/status`, {
       cache: "no-store",
     });
 

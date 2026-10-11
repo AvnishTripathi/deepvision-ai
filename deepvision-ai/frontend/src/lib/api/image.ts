@@ -2,7 +2,7 @@
  * DeepVision AI — Image Detection & Facial Analysis API
  */
 
-import { API_BASE_URL, ApiError } from "./client";
+import { API_BASE_URL, getApiBaseUrl, ApiError } from "./client";
 import {
   ImageAnalysisResponse,
   StructuredFaceAnalysis,
@@ -104,7 +104,7 @@ export async function analyzeImageFile(
   }
 
   const queryString = queryParams.toString() ? `?${queryParams.toString()}` : "";
-  const url = `${API_BASE_URL}/api/v1/ai/analyze${queryString}`;
+  const url = `${getApiBaseUrl()}/api/v1/ai/analyze${queryString}`;
 
   const response = await fetch(url, {
     method: "POST",

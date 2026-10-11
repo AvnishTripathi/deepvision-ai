@@ -3,8 +3,23 @@
  * Base configuration and HTTP request helpers.
  */
 
-export const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "") || "http://localhost:8000";
+export function getApiBaseUrl(): string {
+  if (process.env.NEXT_PUBLIC_API_URL) {
+    return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "");
+  }
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host.includes("render.com") || host.includes("deepvision")) {
+      return "https://deepvision-backend.onrender.com";
+    }
+  }
+  if (process.env.NODE_ENV === "production") {
+    return "https://deepvision-backend.onrender.com";
+  }
+  return "http://localhost:8000";
+}
+
+export const API_BASE_URL = getApiBaseUrl();
 
 export class ApiError extends Error {
   public status: number;
@@ -26,7 +41,8 @@ export async function requestJson<T>(
   endpoint: string,
   options: RequestOptions = {}
 ): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
+  const baseUrl = getApiBaseUrl();
+  const url = `${baseUrl}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
   const timeoutMs = options.timeoutMs ?? 30000;
 
   const controller = new AbortController();

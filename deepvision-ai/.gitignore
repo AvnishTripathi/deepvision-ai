@@ -78,7 +78,8 @@ models/**/*.tflite
 *.pth
 *.bin
 *.safetensors
-*.engine
+!models/face_detection/face_detection_yunet_2023mar.onnx
+!face_detection_yunet_2023mar.onnx
 !models/**/.gitkeep
 !models/.gitkeep
 
