@@ -347,6 +347,21 @@ class Settings(BaseSettings):
                     if f.endswith(".onnx"):
                         return os.path.join(s_dir, f)
 
+        # Automatic fallback: download official YuNet weights (232 KB) if missing in production cloud
+        try:
+            target_dir = os.path.abspath(os.path.join(self.MODELS_DIR, "face_detection"))
+            os.makedirs(target_dir, exist_ok=True)
+            target_file = os.path.join(target_dir, "face_detection_yunet_2023mar.onnx")
+            if not os.path.exists(target_file):
+                import urllib.request
+                url = "https://raw.githubusercontent.com/opencv/opencv_zoo/master/models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
+                logger.info("Downloading official YuNet model weights to %s...", target_file)
+                urllib.request.urlretrieve(url, target_file)
+                if os.path.exists(target_file):
+                    return target_file
+        except Exception as exc:
+            logger.warning("Could not automatically download model weights: %s", exc)
+
         return None
 
     model_config = SettingsConfigDict(
