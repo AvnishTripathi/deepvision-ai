@@ -119,3 +119,26 @@ DeepVision AI implements defense-in-depth principles across its full application
 - **Minimal Image Footprint**: Multi-stage Docker builds based on `python:3.12-slim` and `node:20-alpine` eliminate unnecessary build tools from production images.
 - **Read-Only / Segregated Volumes**: Storage partitions (`storage/temp`, `storage/media`, `storage/results`) are isolated from application source files.
 
+---
+
+## 4. Biometric Privacy Guardrails & Anti-Spoofing Architecture
+
+### 4.1 Biometric Identity Matching Boundaries (Strictly Prohibited by Design)
+DeepVision AI enforces strict biometric privacy and ethical boundaries:
+- **Zero Facial Embeddings Extraction**: The pipeline does not extract 128D/512D biometric vector embeddings or biometric templates.
+- **Zero Biometric Identity Databases**: No identity tables, gallery matching, or person recognition databases exist in the data model.
+- **Temporary Track IDs (ByteTrack Continuity Only)**: Track identifiers (e.g., `Track #1`, `Track #2`) are ephemeral, integer-based visual continuity markers scoped strictly to the current video processing session. They represent short-term spatial-temporal trajectory tracking and **never** link to individual identities or person profiles.
+- **Regulatory Compliance Readiness**: Prevents unlawful mass surveillance, biometric harvesting, and unauthorized facial recognition.
+
+### 4.2 Liveness & Anti-Spoofing Verification (Future Security Roadmap)
+To protect verification workflows from presentation attacks while maintaining identity privacy, the following security architecture is designated for the next phase:
+- **Presentation Attack Detection (PAD)**: Conforming to ISO/IEC 30107-3 standards to evaluate physical presentation attacks:
+  - **2D Print Attacks**: High-resolution photo prints, paper cutouts, and warped photos.
+  - **Screen Replay Attacks**: Digital displays, smartphone/tablet screens, and monitor replays.
+  - **3D Mask Attacks**: Silicone, latex, or 3D-printed facial masks.
+- **Bytecode & ONNX Security Layer**:
+  - Verification models will be packaged as compiled ONNX/bytecode inference modules with SHA-256 cryptographic integrity checks.
+  - Preprocessing pipelines will evaluate spatial frequency distribution (FFT analysis), moiré pattern detection, and micro-texture reflection analysis alongside neural classification heads.
+  - Defense outputs will produce binary spoof probability scores without recording biometric identity templates.
+
+
