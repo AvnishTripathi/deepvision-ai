@@ -56,38 +56,53 @@ export default function LandingPage() {
         <div className="absolute -right-20 -top-20 h-80 w-80 rounded-full bg-brand-cyan/10 blur-3xl pointer-events-none" />
         <div className="absolute -left-20 -bottom-20 h-80 w-80 rounded-full bg-brand-violet/10 blur-3xl pointer-events-none" />
 
-        <div className="relative z-10 max-w-3xl">
-          <div className="inline-flex items-center gap-2 rounded-xl border border-brand-cyan/30 bg-brand-cyan/10 px-3.5 py-1.5 text-xs font-semibold text-brand-cyan">
-            <Zap className="h-4 w-4" />
-            <span>DeepVision AI Platform</span>
+        <div className="relative z-10 flex flex-col lg:flex-row items-center justify-between gap-10">
+          <div className="max-w-2xl">
+            <div className="inline-flex items-center gap-2 rounded-xl border border-brand-cyan/30 bg-brand-cyan/10 px-3.5 py-1.5 text-xs font-semibold text-brand-cyan">
+              <Zap className="h-4 w-4" />
+              <span>DeepVision AI Platform</span>
+            </div>
+
+            <h1 className="mt-5 text-4xl font-extrabold tracking-tight text-white sm:text-6xl">
+              DeepVision AI
+            </h1>
+            <p className="mt-2 text-xl font-semibold tracking-wide text-brand-cyan sm:text-2xl">
+              See. Detect. Track. Analyze. Understand.
+            </p>
+
+            <p className="mt-5 text-base text-slate-300 sm:text-lg leading-relaxed">
+              A professional AI-powered computer vision platform for real-time face detection, video tracking, facial analysis and intelligent visual insights.
+            </p>
+
+            <div className="mt-8 flex flex-wrap items-center gap-4">
+              <Link
+                href="/image"
+                className="inline-flex items-center gap-2.5 rounded-xl bg-gradient-to-r from-brand-cyan to-brand-blue px-7 py-3.5 text-base font-bold text-dark-950 shadow-glow transition-all hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
+              >
+                <span>Start Analyzing</span>
+                <ArrowRight className="h-5 w-5" />
+              </Link>
+              <Link
+                href="/video"
+                className="inline-flex items-center gap-2.5 rounded-xl border border-slate-700 bg-dark-800/90 px-6 py-3.5 text-base font-semibold text-slate-200 transition-all hover:border-slate-600 hover:bg-dark-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
+              >
+                <Video className="h-5 w-5" />
+                <span>Video Tracking Studio</span>
+              </Link>
+            </div>
           </div>
 
-          <h1 className="mt-5 text-4xl font-extrabold tracking-tight text-white sm:text-6xl">
-            DeepVision AI
-          </h1>
-          <p className="mt-2 text-xl font-semibold tracking-wide text-brand-cyan sm:text-2xl">
-            See. Detect. Track. Analyze. Understand.
-          </p>
-
-          <p className="mt-5 text-base text-slate-300 sm:text-lg leading-relaxed">
-            A professional AI-powered computer vision platform for real-time face detection, video tracking, facial analysis and intelligent visual insights.
-          </p>
-
-          <div className="mt-8 flex flex-wrap items-center gap-4">
-            <Link
-              href="/image"
-              className="inline-flex items-center gap-2.5 rounded-xl bg-gradient-to-r from-brand-cyan to-brand-blue px-7 py-3.5 text-base font-bold text-dark-950 shadow-glow transition-all hover:opacity-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
-            >
-              <span>Start Analyzing</span>
-              <ArrowRight className="h-5 w-5" />
-            </Link>
-            <Link
-              href="/video"
-              className="inline-flex items-center gap-2.5 rounded-xl border border-slate-700 bg-dark-800/90 px-6 py-3.5 text-base font-semibold text-slate-200 transition-all hover:border-slate-600 hover:bg-dark-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-cyan"
-            >
-              <Video className="h-5 w-5" />
-              <span>Video Tracking Studio</span>
-            </Link>
+          {/* Hero Logo Emblem */}
+          <div className="relative shrink-0 flex items-center justify-center">
+            <div className="absolute inset-0 rounded-3xl bg-brand-cyan/20 blur-2xl" />
+            <div className="relative h-64 w-64 sm:h-72 sm:w-72 overflow-hidden rounded-3xl border border-brand-cyan/40 bg-dark-950/90 p-4 shadow-2xl backdrop-blur-xl">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/logo.png"
+                alt="DeepVision AI Official Logo"
+                className="h-full w-full object-contain rounded-2xl"
+              />
+            </div>
           </div>
         </div>
       </section>

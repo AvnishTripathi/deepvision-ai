@@ -4,9 +4,33 @@ import LayoutShell from "@/components/LayoutShell";
 import { ThemeProvider } from "@/context/ThemeContext";
 
 export const metadata: Metadata = {
+  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
   title: "DeepVision AI — See. Detect. Track. Analyze. Understand.",
   description:
     "Enterprise AI Computer Vision platform for multi-face detection, ByteTrack tracking, 3D pose, and face quality analytics.",
+  icons: {
+    icon: [
+      { url: "/favicon.ico", sizes: "any" },
+      { url: "/logo.png", type: "image/png" },
+    ],
+    apple: [
+      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
+    ],
+    shortcut: ["/logo.png"],
+  },
+  openGraph: {
+    title: "DeepVision AI — See. Detect. Track. Analyze. Understand.",
+    description:
+      "Enterprise AI Computer Vision platform for multi-face detection, ByteTrack tracking, 3D pose, and face quality analytics.",
+    images: [
+      {
+        url: "/logo.png",
+        width: 1024,
+        height: 1024,
+        alt: "DeepVision AI Logo",
+      },
+    ],
+  },
 };
 
 export default function RootLayout({

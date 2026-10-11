@@ -78,10 +78,13 @@ export default function Sidebar({ isOpen, onClose }: SidebarProps) {
       >
         {/* Brand Header */}
         <div className="flex h-20 items-center gap-3 border-b border-slate-800/80 px-6">
-          <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-tr from-brand-cyan via-brand-blue to-brand-violet p-0.5 shadow-glow">
-            <div className="flex h-full w-full items-center justify-center rounded-[10px] bg-dark-950">
-              <Sparkles className="h-5 w-5 text-brand-cyan" />
-            </div>
+          <div className="relative flex h-11 w-11 shrink-0 overflow-hidden rounded-xl border border-brand-cyan/40 bg-dark-950 p-1 shadow-glow">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo.png"
+              alt="DeepVision AI"
+              className="h-full w-full object-contain"
+            />
           </div>
           <div>
             <div className="flex items-center gap-1.5">
