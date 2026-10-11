@@ -8,13 +8,13 @@ export function getApiBaseUrl(): string {
     return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "");
   }
   if (typeof window !== "undefined") {
-    const host = window.location.hostname;
-    if (host.includes("render.com") || host.includes("deepvision")) {
+    if (window.location.hostname === "deepvision-frontend.onrender.com") {
       return "https://deepvision-backend.onrender.com";
     }
+    return window.location.origin;
   }
   if (process.env.NODE_ENV === "production") {
-    return "https://deepvision-backend.onrender.com";
+    return "";
   }
   return "http://localhost:8000";
 }
